@@ -543,7 +543,7 @@ export default function ReportsPage() {
               <p className="text-xs font-black uppercase tracking-widest text-on-surface-variant">Total Receitas</p>
             </div>
             <h3 className="text-2xl font-black text-on-surface">
-              {formatCurrency(transactions.filter((t: any) => t.type === 'receita').reduce((acc, t) => acc + t.value, 0))}
+              {formatCurrency(transactions.filter((t: any) => t.type === 'receita').reduce((acc: number, t: any) => acc + t.value, 0))}
             </h3>
           </div>
 
@@ -591,7 +591,7 @@ export default function ReportsPage() {
               <p className="text-xs font-black uppercase tracking-widest text-white/70">Saldo do Período</p>
             </div>
             <h3 className="text-2xl font-black text-white">
-              {formatCurrency(transactions.reduce((acc, t) => t.type === 'receita' ? acc + t.value : acc - t.value, 0))}
+              {formatCurrency(transactions.reduce((acc: number, t: any) => t.type === 'receita' ? acc + t.value : acc - t.value, 0))}
             </h3>
           </div>
         </div>
@@ -633,17 +633,17 @@ export default function ReportsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="p-6 bg-surface-container-low rounded-2xl border border-outline-variant/10">
                 <p className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant mb-2">Cartão de Crédito</p>
-                <p className="text-2xl font-black text-on-surface">{formatCurrency(transactions.filter((t: any) => t.paymentMethod === 'cartao_credito' && t.installments > 1).reduce((acc, t) => acc + t.value, 0))}</p>
+                <p className="text-2xl font-black text-on-surface">{formatCurrency(transactions.filter((t: any) => t.paymentMethod === 'cartao_credito' && t.installments > 1).reduce((acc: number, t: any) => acc + t.value, 0))}</p>
               </div>
               <div className="p-6 bg-surface-container-low rounded-2xl border border-outline-variant/10">
                 <p className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant mb-2">Financiamento</p>
-                <p className="text-2xl font-black text-on-surface">{formatCurrency(transactions.filter((t: any) => t.paymentMethod === 'financiamento' && t.installments > 1).reduce((acc, t) => acc + t.value, 0))}</p>
+                <p className="text-2xl font-black text-on-surface">{formatCurrency(transactions.filter((t: any) => t.paymentMethod === 'financiamento' && t.installments > 1).reduce((acc: number, t: any) => acc + t.value, 0))}</p>
               </div>
             </div>
             <div className="mt-6 p-6 bg-primary/5 rounded-2xl border border-primary/10">
               <div className="flex justify-between items-center">
                 <p className="text-sm font-bold text-on-surface">Total Parcelado</p>
-                <p className="text-xl font-black text-primary">{formatCurrency(transactions.filter((t: any) => (t.paymentMethod === 'cartao_credito' || t.paymentMethod === 'financiamento') && t.installments > 1).reduce((acc, t) => acc + t.value, 0))}</p>
+                <p className="text-xl font-black text-primary">{formatCurrency(transactions.filter((t: any) => (t.paymentMethod === 'cartao_credito' || t.paymentMethod === 'financiamento') && t.installments > 1).reduce((acc: number, t: any) => acc + t.value, 0))}</p>
               </div>
             </div>
           </div>
