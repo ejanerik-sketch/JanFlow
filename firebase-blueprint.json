@@ -1,0 +1,84 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System user with role-based access control.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "name": { "type": "string", "description": "Full name" },
+        "email": { "type": "string", "format": "email", "description": "User email" },
+        "photoURL": { "type": "string", "description": "User profile photo URL" },
+        "role": { "type": "string", "enum": ["admin", "financeiro", "analista"], "description": "Access level" }
+      },
+      "required": ["uid", "name", "email", "role"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Financial transaction (revenue or expense) in a specific context.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Owner UID" },
+        "context": { "type": "string", "enum": ["empresa", "pessoal"], "description": "Dual context" },
+        "type": { "type": "string", "enum": ["receita", "despesa"], "description": "Transaction type" },
+        "category": { "type": "string", "description": "Category name" },
+        "entityName": { "type": "string", "description": "Client or Supplier name" },
+        "description": { "type": "string", "description": "Service or product description" },
+        "value": { "type": "number", "description": "Transaction amount" },
+        "date": { "type": "string", "format": "date-time", "description": "Transaction or contract date" },
+        "renewalDate": { "type": "string", "format": "date-time", "description": "Contract renewal date (Business only)" },
+        "status": { "type": "string", "enum": ["pago", "a_pagar", "atrasado", "recebido", "a_receber"], "description": "Payment status" },
+        "paymentMethod": { "type": "string", "enum": ["pix", "cartao", "boleto", "dinheiro"], "description": "Payment method" },
+        "cardId": { "type": "string", "description": "ID of the credit card used" },
+        "recurrent": { "type": "boolean", "description": "If the transaction repeats monthly" },
+        "observation": { "type": "string", "description": "Additional notes" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "context", "type", "category", "entityName", "value", "date", "status"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Financial category for organizing transactions.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Owner UID" },
+        "context": { "type": "string", "enum": ["empresa", "pessoal"] },
+        "flow": { "type": "string", "enum": ["receita", "despesa_fixa", "despesa_variavel"] },
+        "name": { "type": "string" }
+      },
+      "required": ["uid", "context", "flow", "name"]
+    },
+    "Card": {
+      "title": "Card",
+      "description": "Credit card for tracking expenses.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Owner UID" },
+        "context": { "type": "string", "enum": ["empresa", "pessoal"] },
+        "name": { "type": "string", "description": "Card name (e.g. Nubank PJ)" },
+        "bank": { "type": "string" },
+        "brand": { "type": "string" },
+        "type": { "type": "string", "enum": ["pj", "pessoal"] }
+      },
+      "required": ["uid", "context", "name", "bank", "brand", "type"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Financial records"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Transaction categories"
+    },
+    "/cards/{cardId}": {
+      "schema": "Card",
+      "description": "Credit cards"
+    }
+  }
+}
