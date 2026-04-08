@@ -158,7 +158,7 @@ export default function BudgetsPage() {
                        t.type === 'despesa' && 
                        isWithinInterval(tDate, { start, end });
               })
-              .reduce((acc, t) => acc + t.value, 0);
+              .reduce((acc: number, t: any) => acc + t.value, 0);
             
             const percentage = Math.min((spent / budget.amount) * 100, 100);
             const remaining = budget.amount - spent;

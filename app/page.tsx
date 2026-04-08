@@ -475,7 +475,7 @@ export default function Dashboard() {
               {budgets.slice(0, 4).map((budget) => {
                 const spent = transactions
                   .filter(t => t.category === budget.category && t.type === 'despesa')
-                  .reduce((acc, t) => acc + t.value, 0);
+                  .reduce((acc: number, t: any) => acc + t.value, 0);
                 const percentage = Math.min((spent / budget.amount) * 100, 100);
                 const isNearLimit = percentage >= 80;
 

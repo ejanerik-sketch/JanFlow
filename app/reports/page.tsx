@@ -123,14 +123,14 @@ export default function ReportsPage() {
           const monthTrans = filtered.filter((t: any) => new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date).getMonth() === i);
           return {
             month: format(new Date(2000, i, 1), 'MMM', { locale: ptBR }),
-            current: monthTrans.reduce((acc, t) => t.type === 'receita' ? acc + t.value : acc - t.value, 0),
+            current: monthTrans.reduce((acc: number, t: any) => t.type === 'receita' ? acc + t.value : acc - t.value, 0),
             previous: 0
           };
         });
 
         const prevYearByMonth = Array.from({ length: 12 }, (_, i) => {
           const monthTrans = prevYearTrans.filter((t: any) => new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date).getMonth() === i);
-          return monthTrans.reduce((acc, t) => t.type === 'receita' ? acc + t.value : acc - t.value, 0);
+          return monthTrans.reduce((acc: number, t: any) => t.type === 'receita' ? acc + t.value : acc - t.value, 0);
         });
 
         const comparison = currentYearByMonth.map((item, i) => ({
@@ -155,14 +155,14 @@ export default function ReportsPage() {
       
       const monthData: any = {
         name: format(new Date(getYear(selectedMonth), i), 'MMM', { locale: ptBR }),
-        receita: monthTrans.filter((t: any) => t.type === 'receita').reduce((acc, t) => acc + t.value, 0),
-        despesa: monthTrans.filter((t: any) => t.type === 'despesa').reduce((acc, t) => acc + t.value, 0),
+        receita: monthTrans.filter((t: any) => t.type === 'receita').reduce((acc: number, t: any) => acc + t.value, 0),
+        despesa: monthTrans.filter((t: any) => t.type === 'despesa').reduce((acc: number, t: any) => acc + t.value, 0),
       };
 
       categories.forEach(cat => {
         monthData[cat.name] = monthTrans
           .filter((t: any) => t.category === cat.name && t.type === 'despesa')
-          .reduce((acc, t) => acc + t.value, 0);
+          .reduce((acc: number, t: any) => acc + t.value, 0);
       });
 
       return monthData;
@@ -185,7 +185,7 @@ export default function ReportsPage() {
       cards.forEach(card => {
         monthData[card.name] = monthTrans
           .filter((t: any) => t.paymentMethod === 'cartao_credito' && t.cardId === card.id)
-          .reduce((acc, t) => acc + t.value, 0);
+          .reduce((acc: number, t: any) => acc + t.value, 0);
       });
 
       return monthData;
@@ -231,8 +231,8 @@ export default function ReportsPage() {
   }, []);
 
   // Fixed vs Variable
-  const fixedExpenses = transactions.filter((t: any) => t.type === 'despesa' && t.recurrent).reduce((acc, t) => acc + t.value, 0);
-  const variableExpenses = transactions.filter((t: any) => t.type === 'despesa' && !t.recurrent).reduce((acc, t) => acc + t.value, 0);
+  const fixedExpenses = transactions.filter((t: any) => t.type === 'despesa' && t.recurrent).reduce((acc: number, t: any) => acc + t.value, 0);
+  const variableExpenses = transactions.filter((t: any) => t.type === 'despesa' && !t.recurrent).reduce((acc: number, t: any) => acc + t.value, 0);
 
   // Card breakdown
   const cardMap: Record<string, { id: string, name: string, bank: string, lastDigits: string, spending: number }> = {};
@@ -260,7 +260,7 @@ export default function ReportsPage() {
   // Financing breakdown
   const financingSpending = transactions
     .filter((t: any) => t.paymentMethod === 'financiamento')
-    .reduce((acc, t) => acc + t.value, 0);
+    .reduce((acc: number, t: any) => acc + t.value, 0);
 
   const dailyData = transactions.reduce((acc: any, t) => {
     const tDate = new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date);
@@ -299,8 +299,8 @@ export default function ReportsPage() {
 
   // Receivables: Contrato vs Serviço Avulso
   const receivables = {
-    contrato: clients.reduce((acc, c) => acc + (Number(c.contractValue) || 0), 0),
-    avulso: transactions.filter((t: any) => t.type === 'receita' && !t.recurrent).reduce((acc, t) => acc + t.value, 0)
+    contrato: clients.reduce((acc: number, c: any) => acc + (Number(c.contractValue) || 0), 0),
+    avulso: transactions.filter((t: any) => t.type === 'receita' && !t.recurrent).reduce((acc: number, t: any) => acc + t.value, 0)
   };
 
   // Active Contracts: Clients + Recurring Receipts

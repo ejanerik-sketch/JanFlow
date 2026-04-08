@@ -212,7 +212,7 @@ export default function CardsPage() {
     return matchesSearch;
   });
 
-  const totalInvoice = filteredTransactions.reduce((acc, t) => acc + t.value, 0);
+  const totalInvoice = filteredTransactions.reduce((acc: number, t: any) => acc + t.value, 0);
 
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
