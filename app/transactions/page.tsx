@@ -72,6 +72,11 @@ function TransactionsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, isAuthReady, context } = useAppContext();
+  const isBusiness = context === 'empresa';
+  const themeColor = isBusiness ? 'text-[#1d8490]' : 'text-[#ff6330]';
+  const themeBg = isBusiness ? 'bg-[#1d8490]' : 'bg-[#ff6330]';
+  const themeBorder = isBusiness ? 'border-[#1d8490]' : 'border-[#ff6330]';
+
   const [transactions, setTransactions] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [cards, setCards] = useState<any[]>([]);
@@ -92,7 +97,7 @@ function TransactionsContent() {
   const itemsPerPage = 10;
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<TransactionFormValues>({
-    resolver: zodResolver(transactionSchema),
+    resolver: zodResolver(transactionSchema) as any,
     defaultValues: {
       type: 'despesa',
       status: 'a_receber',
@@ -515,11 +520,6 @@ function TransactionsContent() {
   }, [searchTerm, filterType]);
 
   if (!isAuthReady || !user) return null;
-
-  const isBusiness = context === 'empresa';
-  const themeColor = isBusiness ? 'text-[#1d8490]' : 'text-[#ff6330]';
-  const themeBg = isBusiness ? 'bg-[#1d8490]' : 'bg-[#ff6330]';
-  const themeBorder = isBusiness ? 'border-[#1d8490]' : 'border-[#ff6330]';
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);

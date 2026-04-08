@@ -47,7 +47,7 @@ export default function BudgetsPage() {
   const [budgetToDelete, setBudgetToDelete] = useState<string | null>(null);
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<BudgetFormValues>({
-    resolver: zodResolver(budgetSchema),
+    resolver: zodResolver(budgetSchema) as any,
     defaultValues: {
       recurrence: 'mensal',
     }
