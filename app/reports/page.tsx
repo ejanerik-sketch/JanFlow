@@ -669,7 +669,7 @@ export default function ReportsPage() {
                 </div>
               </div>
               <div className="min-h-[400px] w-full">
-                <ResponsiveContainer width="100%" height={400}>
+                <ResponsiveContainer width="100%" height={400} minWidth={1} minHeight={1}>
                   <AreaChart data={comparisonData}>
                     <defs>
                       <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
@@ -707,7 +707,7 @@ export default function ReportsPage() {
             <div className="bg-surface-container-lowest p-8 rounded-[32px] border border-outline-variant/20 shadow-sm">
               <h3 className="text-xl font-black text-on-surface mb-8">Gastos Mensais por Categoria</h3>
               <div className="min-h-[400px] w-full">
-                <ResponsiveContainer width="100%" height={400}>
+                <ResponsiveContainer width="100%" height={400} minWidth={1} minHeight={1}>
                   <BarChart data={annualCategoryData}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis 
@@ -743,7 +743,7 @@ export default function ReportsPage() {
             <div className="bg-surface-container-lowest p-8 rounded-[32px] border border-outline-variant/20 shadow-sm">
               <h3 className="text-xl font-black text-on-surface mb-8">Faturas de Cartão por Mês</h3>
               <div className="min-h-[400px] w-full">
-                <ResponsiveContainer width="100%" height={400}>
+                <ResponsiveContainer width="100%" height={400} minWidth={1} minHeight={1}>
                   <BarChart data={annualCardData}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis 
@@ -797,7 +797,7 @@ export default function ReportsPage() {
                 </div>
               </div>
               <div className="min-h-[300px] w-full">
-                <ResponsiveContainer width="100%" height={300}>
+                <ResponsiveContainer width="100%" height={300} minWidth={1} minHeight={1}>
                   <AreaChart data={dailyData}>
                     <defs>
                       <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
@@ -844,7 +844,7 @@ export default function ReportsPage() {
               </div>
               <div className="h-[300px] w-full flex flex-col md:flex-row items-center">
                 <div className="w-full md:w-1/2 min-h-[300px]">
-                  <ResponsiveContainer width="100%" height={300}>
+                  <ResponsiveContainer width="100%" height={300} minWidth={1} minHeight={1}>
                     <RePieChart>
                       <Pie
                         data={categoryData}
