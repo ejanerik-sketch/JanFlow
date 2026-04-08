@@ -126,13 +126,13 @@ function TransactionsContent() {
     }
   }, [transactionType, isBusiness, paymentMethod, setValue]);
 
-  const loadPreviousMonthTransactions = () => {
+  const loadPreviousMonthTransactions = async () => {
     if (!user) return;
     const prevMonthDate = addMonths(new Date(), -1);
     const start = startOfMonth(prevMonthDate);
     const end = endOfMonth(prevMonthDate);
 
-    const allTrans = localDB.get('transactions', user.uid, context);
+    const allTrans = await localDB.get('transactions', user.uid, context);
     const filtered = allTrans.filter((t: any) => {
       const tDate = new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date);
       return isWithinInterval(tDate, { start, end }) && t.type === transactionType;
@@ -154,18 +154,21 @@ function TransactionsContent() {
   };
 
   useEffect(() => {
-    if (editingTransaction && editingTransaction.installments > 1 && user) {
-      const allTrans = localDB.get('transactions', user.uid, context);
-      const related = allTrans.filter((t: any) => 
-        (t.groupId && t.groupId === editingTransaction.groupId) ||
-        (!t.groupId && t.entityName === editingTransaction.entityName && t.installments === editingTransaction.installments &&
-         Math.abs(new Date(t.createdAt).getTime() - new Date(editingTransaction.createdAt).getTime()) < 10000)
-      ).sort((a: any, b: any) => (a.currentInstallment || 0) - (b.currentInstallment || 0));
-      
-      setRelatedInstallments(related);
-    } else {
-      setRelatedInstallments([]);
-    }
+    const fetchRelated = async () => {
+      if (editingTransaction && editingTransaction.installments > 1 && user) {
+        const allTrans = await localDB.get('transactions', user.uid, context);
+        const related = allTrans.filter((t: any) => 
+          (t.groupId && t.groupId === editingTransaction.groupId) ||
+          (!t.groupId && t.entityName === editingTransaction.entityName && t.installments === editingTransaction.installments &&
+           Math.abs(new Date(t.createdAt).getTime() - new Date(editingTransaction.createdAt).getTime()) < 10000)
+        ).sort((a: any, b: any) => (a.currentInstallment || 0) - (b.currentInstallment || 0));
+        
+        setRelatedInstallments(related);
+      } else {
+        setRelatedInstallments([]);
+      }
+    };
+    fetchRelated();
   }, [editingTransaction, user, context]);
 
   const sharedPeople = React.useMemo(() => {
