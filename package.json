@@ -2,12 +2,16 @@
   "name": "ai-studio-applet",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=18 <25"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3000",
     "lint": "eslint .",
-    "clean": "next clean"
+    "clean": "next clean",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@google/genai": "^1.17.0",
