@@ -46,9 +46,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const checkSession = async () => {
       try {
-        // Add a timeout to prevent hanging if Supabase is blocked
+        // Add a timeout to prevent hanging if Supabase is blocked or waking up
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Timeout checking session')), 5000)
+          setTimeout(() => reject(new Error('Timeout checking session')), 15000)
         );
         
         const sessionPromise = supabase.auth.getSession();
@@ -77,7 +77,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setUser({ uid: session.user.id, email: session.user.email });
           
           const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Timeout fetching profile')), 5000)
+            setTimeout(() => reject(new Error('Timeout fetching profile')), 15000)
           );
           
           const profilePromise = fetchProfile(session.user.id);
