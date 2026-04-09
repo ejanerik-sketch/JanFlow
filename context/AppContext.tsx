@@ -38,7 +38,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         name: data.name || 'Usuário',
         email: data.email,
         role: data.role,
-        photoURL: ''
+        photoURL: data.photoURL || ''
       });
     }
   };
@@ -46,13 +46,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const checkSession = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        // Add a timeout to prevent hanging if Supabase is blocked
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout checking session')), 5000)
+        );
+        
+        const sessionPromise = supabase.auth.getSession();
+        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]) as any;
+        
         if (session?.user) {
           setUser({ uid: session.user.id, email: session.user.email });
-          await fetchProfile(session.user.id);
+          
+          const profilePromise = fetchProfile(session.user.id);
+          await Promise.race([profilePromise, timeoutPromise]);
         }
       } catch (error) {
         console.error("Error checking session:", error);
+        // If there's an error (like timeout), we still want to set auth ready so the user isn't stuck
+        // We might want to clear the user if it's a network error, but let's just log it for now
       } finally {
         setIsAuthReady(true);
       }
@@ -64,7 +75,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         if (session?.user) {
           setUser({ uid: session.user.id, email: session.user.email });
-          await fetchProfile(session.user.id);
+          
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout fetching profile')), 5000)
+          );
+          
+          const profilePromise = fetchProfile(session.user.id);
+          await Promise.race([profilePromise, timeoutPromise]);
         } else {
           setUser(null);
           setUserData(null);

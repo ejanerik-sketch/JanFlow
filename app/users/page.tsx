@@ -119,9 +119,78 @@ export default function UsersPage() {
         setUsers(users.map(u => u.id === editingUser.id ? { ...u, name: formData.name, role: formData.role, photoURL: formData.photoURL } : u));
         setSuccess('Usuário atualizado com sucesso!');
       } else {
-        setError('Para criar novos usuários, eles devem se registrar na tela de login, ou você deve usar a API Admin do Supabase.');
-        setModalLoading(false);
-        return;
+        // Create a secondary Supabase client that doesn't persist the session
+        // This allows creating a user without logging the admin out
+        const { createClient } = await import('@supabase/supabase-js');
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+        const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+        
+        const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false,
+          }
+        });
+
+        // 1. Sign up the new user
+        const { data: authData, error: signUpError } = await supabaseAuth.auth.signUp({
+          email: formData.email,
+          password: formData.password,
+          options: {
+            data: {
+              name: formData.name,
+              role: formData.role,
+              photoURL: formData.photoURL
+            }
+          }
+        });
+
+        if (signUpError) throw signUpError;
+
+        if (!authData.user) {
+          throw new Error('Falha ao criar usuário.');
+        }
+
+        // Wait a moment for the database trigger to create the profile
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // 2. Update the profile with the correct role and photoURL (in case the trigger didn't catch it)
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({
+            role: formData.role,
+            photoURL: formData.photoURL
+          })
+          .eq('id', authData.user.id);
+
+        if (updateError) {
+          console.error("Erro ao atualizar perfil após criação:", updateError);
+          // Don't throw here, the user was created successfully
+        }
+
+        // 3. Fetch the newly created profile to add to the state
+        const { data: newProfile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', authData.user.id)
+          .single();
+
+        if (newProfile) {
+          setUsers([newProfile, ...users]);
+        } else {
+          // Fallback if profile fetch fails
+          setUsers([{
+            id: authData.user.id,
+            email: formData.email,
+            name: formData.name,
+            role: formData.role,
+            photoURL: formData.photoURL,
+            created_at: new Date().toISOString()
+          }, ...users]);
+        }
+
+        setSuccess('Usuário criado com sucesso!');
       }
       
       // Refresh context if editing current user
