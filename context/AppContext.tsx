@@ -26,44 +26,72 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isAuthReady, setIsAuthReady] = useState(false);
 
   const fetchProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-      
-    if (data) {
-      setUserData({
-        uid: data.id,
-        name: data.name || 'Usuário',
-        email: data.email,
-        role: data.role,
-        photoURL: data.photoURL || ''
-      });
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+        
+      if (error) {
+        console.error("Error fetching profile:", error);
+      }
+        
+      if (data) {
+        setUserData({
+          uid: data.id,
+          name: data.name || 'Usuário',
+          email: data.email,
+          role: data.role,
+          photoURL: data.photoURL || ''
+        });
+      } else {
+        // Fallback if profile doesn't exist but user is logged in
+        // This can happen if the trigger failed or user was created before trigger
+        setUserData({
+          uid: userId,
+          name: 'Usuário',
+          email: user?.email || '',
+          role: 'analista', // Default role
+          photoURL: ''
+        });
+      }
+    } catch (err) {
+      console.error("Exception in fetchProfile:", err);
     }
+  };
+
+  // Helper function for timeout that cleans up after itself
+  const withTimeout = <T,>(promise: Promise<T>, ms: number, errorMessage: string): Promise<T> => {
+    let timeoutId: NodeJS.Timeout;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(errorMessage)), ms);
+    });
+
+    return Promise.race([promise, timeoutPromise]).finally(() => {
+      clearTimeout(timeoutId);
+    });
   };
 
   useEffect(() => {
     const checkSession = async () => {
       try {
-        // Add a timeout to prevent hanging if Supabase is blocked or waking up
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Timeout checking session')), 15000)
+        const { data: { session } } = await withTimeout(
+          supabase.auth.getSession(), 
+          15000, 
+          'Timeout checking session'
         );
-        
-        const sessionPromise = supabase.auth.getSession();
-        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]) as any;
         
         if (session?.user) {
           setUser({ uid: session.user.id, email: session.user.email });
-          
-          const profilePromise = fetchProfile(session.user.id);
-          await Promise.race([profilePromise, timeoutPromise]);
+          await withTimeout(
+            fetchProfile(session.user.id),
+            15000,
+            'Timeout fetching profile'
+          );
         }
       } catch (error) {
         console.error("Error checking session:", error);
-        // If there's an error (like timeout), we still want to set auth ready so the user isn't stuck
-        // We might want to clear the user if it's a network error, but let's just log it for now
       } finally {
         setIsAuthReady(true);
       }
@@ -75,13 +103,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         if (session?.user) {
           setUser({ uid: session.user.id, email: session.user.email });
-          
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Timeout fetching profile')), 15000)
+          await withTimeout(
+            fetchProfile(session.user.id),
+            15000,
+            'Timeout fetching profile'
           );
-          
-          const profilePromise = fetchProfile(session.user.id);
-          await Promise.race([profilePromise, timeoutPromise]);
         } else {
           setUser(null);
           setUserData(null);
