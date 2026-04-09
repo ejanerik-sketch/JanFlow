@@ -45,25 +45,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        setUser({ uid: session.user.id, email: session.user.email });
-        await fetchProfile(session.user.id);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          setUser({ uid: session.user.id, email: session.user.email });
+          await fetchProfile(session.user.id);
+        }
+      } catch (error) {
+        console.error("Error checking session:", error);
+      } finally {
+        setIsAuthReady(true);
       }
-      setIsAuthReady(true);
     };
 
     checkSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event: any, session: any) => {
-      if (session?.user) {
-        setUser({ uid: session.user.id, email: session.user.email });
-        await fetchProfile(session.user.id);
-      } else {
-        setUser(null);
-        setUserData(null);
+      try {
+        if (session?.user) {
+          setUser({ uid: session.user.id, email: session.user.email });
+          await fetchProfile(session.user.id);
+        } else {
+          setUser(null);
+          setUserData(null);
+        }
+      } catch (error) {
+        console.error("Error in auth state change:", error);
+      } finally {
+        setIsAuthReady(true);
       }
-      setIsAuthReady(true);
     });
 
     return () => {
