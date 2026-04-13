@@ -77,8 +77,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const checkSession = async () => {
       try {
         const { data: { session } } = await withTimeout(
-          supabase.auth.getSession(), 
-          15000, 
+          supabase.auth.getSession(),
+          10000,
           'Timeout checking session'
         );
         
@@ -86,7 +86,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setUser({ uid: session.user.id, email: session.user.email });
           await withTimeout(
             fetchProfile(session.user.id),
-            15000,
+            10000,
             'Timeout fetching profile'
           );
         }
@@ -105,7 +105,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setUser({ uid: session.user.id, email: session.user.email });
           await withTimeout(
             fetchProfile(session.user.id),
-            15000,
+            10000,
             'Timeout fetching profile'
           );
         } else {

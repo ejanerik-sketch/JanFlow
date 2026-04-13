@@ -27,6 +27,7 @@ import {
   PlusCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { localDB } from '@/lib/localDB';
 import { cn } from '@/lib/utils';
 import { jsPDF } from 'jspdf';
 import { format, addDays, differenceInDays, parseISO } from 'date-fns';
@@ -74,18 +75,18 @@ export default function ClientsPage() {
 
   useEffect(() => {
     if (!isAdmin && !isFinanceiro) return;
+    if (!user) return;
 
-    // Load from localStorage
-    const savedClients = localStorage.getItem('janflow_clients_list');
-    const clientsList = savedClients ? JSON.parse(savedClients) : [];
-    setClients(clientsList);
-    setLoading(false);
-  }, [isAdmin, isFinanceiro]);
+    const loadData = async () => {
+      const clientsList = await localDB.get('clients', user.uid);
+      setClients(clientsList);
+      setLoading(false);
+    };
 
-  const saveClientsToLocal = (newClients: any[]) => {
-    localStorage.setItem('janflow_clients_list', JSON.stringify(newClients));
-    setClients(newClients);
-  };
+    loadData();
+    const interval = setInterval(loadData, 2000);
+    return () => clearInterval(interval);
+  }, [isAdmin, isFinanceiro, user]);
 
   const handleOpenModal = (clientToEdit: any = null) => {
     if (clientToEdit) {
@@ -199,27 +200,23 @@ export default function ClientsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) return;
     setModalLoading(true);
     setError(null);
     setSuccess(null);
 
     try {
+      const payload = {
+        ...formData,
+        uid: user.uid,
+        createdAt: new Date().toISOString()
+      };
+
       if (editingClient) {
-        const updatedClients = clients.map(c => 
-          c.id === editingClient.id 
-            ? { ...c, ...formData }
-            : c
-        );
-        saveClientsToLocal(updatedClients);
+        await localDB.save('clients', { ...payload, id: editingClient.id });
         setSuccess('Cliente atualizado com sucesso!');
       } else {
-        const newClient = {
-          id: Date.now().toString(),
-          ...formData,
-          createdAt: new Date().toISOString()
-        };
-
-        saveClientsToLocal([...clients, newClient]);
+        await localDB.save('clients', payload);
         setSuccess('Cliente cadastrado com sucesso!');
       }
       
@@ -236,10 +233,13 @@ export default function ClientsPage() {
   const handleDeleteClient = async () => {
     if (!isAdmin || !clientToDelete) return;
 
-    const updatedClients = clients.filter(c => c.id !== clientToDelete);
-    saveClientsToLocal(updatedClients);
-    setIsDeleteModalOpen(false);
-    setClientToDelete(null);
+    try {
+      await localDB.delete('clients', clientToDelete);
+      setIsDeleteModalOpen(false);
+      setClientToDelete(null);
+    } catch (error) {
+      console.error('Error deleting client:', error);
+    }
   };
 
   const confirmDelete = (clientId: string) => {

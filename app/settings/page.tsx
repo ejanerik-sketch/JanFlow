@@ -33,7 +33,9 @@ export default function SettingsPage() {
     role: '',
     notifications: true,
     darkMode: false,
-    language: 'pt-BR'
+    language: 'pt-BR',
+    emailSubject: '',
+    emailHtml: ''
   });
 
   useEffect(() => {
@@ -43,14 +45,33 @@ export default function SettingsPage() {
   }, [user, isAuthReady, router]);
 
   useEffect(() => {
-    if (userData) {
+    if (userData && user) {
+      const savedSubject = localStorage.getItem(`janflow_email_subject_${user.uid}`);
+      const savedHtml = localStorage.getItem(`janflow_email_html_${user.uid}`);
+      
       setFormData({
         name: userData.name || '',
         email: user?.email || '',
         role: userData.role || 'Usuário',
         notifications: userData.notifications ?? true,
         darkMode: userData.darkMode ?? false,
-        language: userData.language || 'pt-BR'
+        language: userData.language || 'pt-BR',
+        emailSubject: savedSubject || '[JanFlow] Lembrete: {{transactionName}}',
+        emailHtml: savedHtml || `<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
+  <h2 style="color: #1d8490;">{{titleText}}</h2>
+  <p>Olá,</p>
+  <p>Este é um lembrete automático do JanFlow sobre uma transação que está próxima do vencimento ou atrasada.</p>
+  
+  <div style="background-color: #f3f4f6; padding: 15px; border-radius: 6px; margin: 20px 0;">
+    <p style="margin: 0 0 10px 0;"><strong>Descrição:</strong> {{transactionName}}</p>
+    <p style="margin: 0 0 10px 0;"><strong>Valor:</strong> {{value}}</p>
+    <p style="margin: 0 0 10px 0;"><strong>Vencimento:</strong> {{dueDate}}</p>
+    <p style="margin: 0;"><strong>Tipo:</strong> {{type}}</p>
+  </div>
+  
+  <p>Por favor, lembre-se de {{actionText}} este valor e atualizar o status no sistema.</p>
+  <p>Abraços,<br>Equipe JanFlow</p>
+</div>`
       });
     }
   }, [userData, user]);
@@ -67,6 +88,11 @@ export default function SettingsPage() {
         darkMode: formData.darkMode,
         language: formData.language
       });
+      
+      // Save email template to localStorage
+      localStorage.setItem(`janflow_email_subject_${user.uid}`, formData.emailSubject);
+      localStorage.setItem(`janflow_email_html_${user.uid}`, formData.emailHtml);
+      
       setMessage({ type: 'success', text: 'Configurações salvas com sucesso!' });
     } catch (error) {
       console.error('Erro ao salvar configurações:', error);
@@ -250,6 +276,46 @@ export default function SettingsPage() {
                     <option value="en-US">English (US)</option>
                     <option value="es-ES">Español</option>
                   </select>
+                </div>
+              </div>
+            </section>
+
+            {/* Email Template Section */}
+            <section className="bg-surface-container-lowest p-8 rounded-[32px] border border-outline-variant/20 shadow-sm space-y-8">
+              <div>
+                <h3 className="text-xl font-black text-on-surface">Template de E-mail</h3>
+                <p className="text-sm text-on-surface-variant mt-1">Personalize o e-mail de lembrete de vencimentos.</p>
+              </div>
+              
+              <div className="space-y-6">
+                <div className="bg-surface-container-high p-4 rounded-2xl text-xs font-mono text-on-surface-variant space-y-1">
+                  <p className="font-bold text-on-surface mb-2">Variáveis disponíveis:</p>
+                  <p><span className="text-primary font-bold">{`{{transactionName}}`}</span> - Nome da transação</p>
+                  <p><span className="text-primary font-bold">{`{{value}}`}</span> - Valor formatado (ex: R$ 1.500,00)</p>
+                  <p><span className="text-primary font-bold">{`{{dueDate}}`}</span> - Data de vencimento (ex: 15/04/2026)</p>
+                  <p><span className="text-primary font-bold">{`{{type}}`}</span> - "A Pagar" ou "A Receber"</p>
+                  <p><span className="text-primary font-bold">{`{{actionText}}`}</span> - "pagar" ou "receber"</p>
+                  <p><span className="text-primary font-bold">{`{{titleText}}`}</span> - "Lembrete de Pagamento" ou "Lembrete de Recebimento"</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Assunto do E-mail</label>
+                  <input
+                    value={formData.emailSubject}
+                    onChange={(e) => setFormData({ ...formData, emailSubject: e.target.value })}
+                    className="w-full px-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20"
+                    placeholder="[JanFlow] Lembrete: {{transactionName}}"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Corpo do E-mail (HTML)</label>
+                  <textarea
+                    value={formData.emailHtml}
+                    onChange={(e) => setFormData({ ...formData, emailHtml: e.target.value })}
+                    className="w-full px-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-mono focus:ring-2 focus:ring-primary/20 min-h-[300px] resize-y"
+                    placeholder="<div>...</div>"
+                  />
                 </div>
               </div>
             </section>

@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { useAppContext } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
+import Reminders from './Reminders';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -144,8 +145,17 @@ export default function Layout({ children }: LayoutProps) {
   }, [user, isAuthReady, isAnalista, pathname, router]);
 
   const handleLogout = async () => {
-    localStorage.removeItem('janflow_user');
-    window.location.href = '/login';
+    try {
+      const { supabase } = await import('@/lib/supabase');
+      await supabase.auth.signOut();
+      localStorage.removeItem('janflow_user');
+      window.location.href = '/login';
+    } catch (error) {
+      console.error("Error logging out:", error);
+      // Fallback
+      localStorage.removeItem('janflow_user');
+      window.location.href = '/login';
+    }
   };
 
   const isBusiness = context === 'empresa';
@@ -218,6 +228,7 @@ export default function Layout({ children }: LayoutProps) {
           </div>
 
           <div className="flex items-center gap-4">
+            <Reminders />
             <button 
               onClick={() => {
                 localStorage.removeItem('janflow_user');

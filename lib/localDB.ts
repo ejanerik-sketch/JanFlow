@@ -1,6 +1,27 @@
 
 import { supabase } from './supabase';
 
+const toSnakeCase = (str: string) => str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+const toCamelCase = (str: string) => str.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+
+const convertKeysToSnakeCase = (obj: any) => {
+  if (typeof obj !== 'object' || obj === null) return obj;
+  const newObj: any = {};
+  for (const key in obj) {
+    newObj[toSnakeCase(key)] = obj[key];
+  }
+  return newObj;
+};
+
+const convertKeysToCamelCase = (obj: any) => {
+  if (typeof obj !== 'object' || obj === null) return obj;
+  const newObj: any = {};
+  for (const key in obj) {
+    newObj[toCamelCase(key)] = obj[key];
+  }
+  return newObj;
+};
+
 // Supabase Database Utility
 export const localDB = {
   get: async (collection: string, uid: string, context?: string) => {
@@ -17,7 +38,7 @@ export const localDB = {
       return [];
     }
     
-    return data || [];
+    return (data || []).map(convertKeysToCamelCase);
   },
   
   save: async (collection: string, item: any) => {
@@ -28,11 +49,14 @@ export const localDB = {
       delete payload.uid;
     }
 
-    if (payload.id) {
+    // Convert keys to snake_case for Supabase
+    const dbPayload = convertKeysToSnakeCase(payload);
+
+    if (dbPayload.id) {
       const { data, error } = await supabase
         .from(collection)
-        .update(payload)
-        .eq('id', payload.id)
+        .update(dbPayload)
+        .eq('id', dbPayload.id)
         .select()
         .single();
         
@@ -40,11 +64,11 @@ export const localDB = {
         console.error(`Error updating ${collection}:`, error);
         throw error;
       }
-      return data;
+      return convertKeysToCamelCase(data);
     } else {
       const { data, error } = await supabase
         .from(collection)
-        .insert([payload])
+        .insert([dbPayload])
         .select()
         .single();
         
@@ -52,7 +76,7 @@ export const localDB = {
         console.error(`Error inserting ${collection}:`, error);
         throw error;
       }
-      return data;
+      return convertKeysToCamelCase(data);
     }
   },
   

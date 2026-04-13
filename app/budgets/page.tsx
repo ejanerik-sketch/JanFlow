@@ -85,7 +85,7 @@ export default function BudgetsPage() {
         uid: user.uid,
         context: context,
         id: editingBudget?.id || undefined,
-        updatedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
       };
       
       await localDB.save('budgets', budgetData);

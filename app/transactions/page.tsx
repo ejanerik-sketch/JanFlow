@@ -290,11 +290,21 @@ function TransactionsContent() {
 
       const finalEntityName = data.entityName === 'outro' ? data.otherEntityName || 'Outro' : data.entityName;
 
+      // Extract only the fields that exist in the database schema
       const basePayload = {
-        ...data,
+        type: data.type,
+        category: data.category,
         entityName: finalEntityName,
+        description: data.description || data.observation || '',
+        value: data.value,
         status: isCreditCard ? 'pago' : data.status,
+        paymentMethod: data.paymentMethod,
+        cardId: data.cardId || null,
+        isInstallment: data.isInstallment || false,
+        installments: data.installments || 1,
+        isShared: data.isShared || false,
         sharedWith: data.isShared ? data.sharedWith : '',
+        recurrent: data.recurrent || false,
         uid: user.uid,
         context,
         createdAt: new Date().toISOString(),
