@@ -249,9 +249,9 @@ export default function ClientsPage() {
   };
 
   const filteredClients = clients.filter(c => 
-    c.companyName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.cnpj?.includes(searchTerm) ||
-    c.responsibleName?.toLowerCase().includes(searchTerm.toLowerCase())
+    (c.companyName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (c.cnpj || '').includes(searchTerm) ||
+    (c.responsibleName || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const handleExportCSV = () => {

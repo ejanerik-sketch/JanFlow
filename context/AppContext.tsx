@@ -61,33 +61,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Helper function for timeout that cleans up after itself
-  const withTimeout = <T,>(promise: Promise<T>, ms: number, errorMessage: string): Promise<T> => {
-    let timeoutId: NodeJS.Timeout;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => reject(new Error(errorMessage)), ms);
-    });
-
-    return Promise.race([promise, timeoutPromise]).finally(() => {
-      clearTimeout(timeoutId);
+  const safeAwait = <T,>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
+    return new Promise((resolve) => {
+      const timeoutId = setTimeout(() => {
+        console.warn('Request timed out, using fallback');
+        resolve(fallback);
+      }, ms);
+      
+      promise.then(
+        (res) => {
+          clearTimeout(timeoutId);
+          resolve(res);
+        },
+        (err) => {
+          clearTimeout(timeoutId);
+          console.error('Request failed:', err);
+          resolve(fallback);
+        }
+      );
     });
   };
 
   useEffect(() => {
     const checkSession = async () => {
       try {
-        const { data: { session } } = await withTimeout(
+        const sessionResult = await safeAwait(
           supabase.auth.getSession(),
-          10000,
-          'Timeout checking session'
+          8000,
+          { data: { session: null } }
         );
+        const session = sessionResult?.data?.session;
         
         if (session?.user) {
           setUser({ uid: session.user.id, email: session.user.email });
-          await withTimeout(
+          await safeAwait(
             fetchProfile(session.user.id),
-            10000,
-            'Timeout fetching profile'
+            8000,
+            undefined
           );
         }
       } catch (error) {
@@ -103,10 +113,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         if (session?.user) {
           setUser({ uid: session.user.id, email: session.user.email });
-          await withTimeout(
+          await safeAwait(
             fetchProfile(session.user.id),
-            10000,
-            'Timeout fetching profile'
+            8000,
+            undefined
           );
         } else {
           setUser(null);

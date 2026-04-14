@@ -203,10 +203,10 @@ export default function CardsPage() {
     if (!matchesMonth) return false;
 
     const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = (t.entityName?.toLowerCase() || '').includes(searchLower) || 
-                          (t.category?.toLowerCase() || '').includes(searchLower) ||
-                          (t.description?.toLowerCase() || '').includes(searchLower) ||
-                          t.value.toString().includes(searchLower) ||
+    const matchesSearch = ((t.entityName || '').toLowerCase()).includes(searchLower) || 
+                          ((t.category || '').toLowerCase()).includes(searchLower) ||
+                          ((t.description || '').toLowerCase()).includes(searchLower) ||
+                          (t.value || '').toString().includes(searchLower) ||
                           format(tDate, 'dd/MM/yyyy').includes(searchLower);
     
     return matchesSearch;

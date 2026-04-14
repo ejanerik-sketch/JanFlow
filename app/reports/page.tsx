@@ -313,11 +313,11 @@ export default function ReportsPage() {
   // Commercial Indicators logic
   const commercialIndicators = transactions.reduce((acc: any, t) => {
     if (t.type === 'receita') {
-      if (t.category?.toLowerCase().includes('contrato') || t.description?.toLowerCase().includes('novo contrato')) {
+      if ((t.category || '').toLowerCase().includes('contrato') || (t.description || '').toLowerCase().includes('novo contrato')) {
         acc.new++;
       }
     } else if (t.type === 'despesa') {
-      if (t.description?.toLowerCase().includes('cancelamento') || t.description?.toLowerCase().includes('cancelado')) {
+      if ((t.description || '').toLowerCase().includes('cancelamento') || (t.description || '').toLowerCase().includes('cancelado')) {
         acc.cancelled++;
       }
     }
@@ -341,8 +341,8 @@ export default function ReportsPage() {
   const sharedByPerson = sharedPurchases.reduce((acc: any, t: any) => {
     const people = t.sharedWith.split(',').map((p: string) => p.trim()).filter(Boolean);
     people.forEach((person: string) => {
-      const normalizedPerson = person.toLowerCase();
-      const existingKey = Object.keys(acc).find(k => k.toLowerCase() === normalizedPerson);
+      const normalizedPerson = (person || '').toLowerCase();
+      const existingKey = Object.keys(acc).find(k => (k || '').toLowerCase() === normalizedPerson);
       const keyToUse = existingKey || person;
 
       if (!acc[keyToUse]) acc[keyToUse] = { total: 0, items: [] };

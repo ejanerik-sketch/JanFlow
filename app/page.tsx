@@ -136,7 +136,7 @@ export default function Dashboard() {
           else if (t.status === 'a_receber' || t.status === 'pendente') pend += t.value;
           else if (t.status === 'atrasado') over += t.value;
 
-          if (t.category?.toLowerCase().includes('contrato') || t.description?.toLowerCase().includes('novo contrato')) {
+          if ((t.category || '').toLowerCase().includes('contrato') || (t.description || '').toLowerCase().includes('novo contrato')) {
             newC++;
           }
         } else {
@@ -144,7 +144,7 @@ export default function Dashboard() {
           if (t.status === 'atrasado') over += t.value;
           else if (t.status === 'a_pagar' || t.status === 'pendente') pend += t.value;
           
-          if (t.description?.toLowerCase().includes('cancelamento') || t.description?.toLowerCase().includes('cancelado')) {
+          if ((t.description || '').toLowerCase().includes('cancelamento') || (t.description || '').toLowerCase().includes('cancelado')) {
             cancC++;
           }
 

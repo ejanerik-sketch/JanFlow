@@ -566,11 +566,11 @@ function TransactionsContent() {
 
   const filteredTransactions = transactions.filter(t => {
     const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = t.entityName.toLowerCase().includes(searchLower) || 
-                          t.description?.toLowerCase().includes(searchLower) ||
-                          t.category.toLowerCase().includes(searchLower) ||
-                          t.status.toLowerCase().includes(searchLower) ||
-                          t.value.toString().includes(searchLower);
+    const matchesSearch = (t.entityName || '').toLowerCase().includes(searchLower) || 
+                          (t.description || '').toLowerCase().includes(searchLower) ||
+                          (t.category || '').toLowerCase().includes(searchLower) ||
+                          (t.status || '').toLowerCase().includes(searchLower) ||
+                          (t.value || '').toString().includes(searchLower);
     const matchesType = filterType === 'todos' || t.type === filterType;
     return matchesSearch && matchesType;
   });
