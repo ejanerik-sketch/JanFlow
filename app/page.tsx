@@ -67,6 +67,12 @@ export default function Dashboard() {
     categoryDistribution: [] as { name: string, value: number, color: string }[]
   });
   const [selectedMonth, setSelectedMonth] = useState(new Date());
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  const [filters, setFilters] = useState({
+    status: 'todos',
+    type: 'todos',
+    category: 'todos'
+  });
 
   useEffect(() => {
     if (isAuthReady && !user) {
@@ -98,7 +104,22 @@ export default function Dashboard() {
       
       const filtered = allTransactions.filter((t: any) => {
         const tDate = new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date);
-        return isWithinInterval(tDate, { start, end });
+        const inMonth = isWithinInterval(tDate, { start, end });
+        if (!inMonth) return false;
+
+        if (filters.status !== 'todos') {
+          if (filters.status === 'pago') {
+            if (t.status !== 'pago' && t.status !== 'recebido') return false;
+          } else if (filters.status === 'pendente') {
+            if (t.status !== 'pendente' && t.status !== 'a_pagar' && t.status !== 'a_receber') return false;
+          } else if (filters.status === 'atrasado') {
+            if (t.status !== 'atrasado') return false;
+          }
+        }
+        if (filters.type !== 'todos' && t.type !== filters.type) return false;
+        if (filters.category !== 'todos' && t.category !== filters.category) return false;
+
+        return true;
       }).sort((a: any, b: any) => {
         const dateA = new Date(a.date?.seconds ? a.date.seconds * 1000 : a.date).getTime();
         const dateB = new Date(b.date?.seconds ? b.date.seconds * 1000 : b.date).getTime();
@@ -195,7 +216,7 @@ export default function Dashboard() {
     };
 
     loadData();
-  }, [user, context, selectedMonth]);
+  }, [user, context, selectedMonth, filters]);
 
   if (!isAuthReady) {
     return (
@@ -268,9 +289,15 @@ export default function Dashboard() {
               </select>
             </div>
             <div className="w-px h-6 bg-outline-variant/30"></div>
-            <button className="flex items-center gap-2 px-4 py-2 bg-surface-container-highest rounded-xl text-sm font-bold text-on-surface hover:bg-outline-variant/20 transition-colors">
+            <button 
+              onClick={() => setIsFilterModalOpen(true)}
+              className="relative flex items-center gap-2 px-4 py-2 bg-surface-container-highest rounded-xl text-sm font-bold text-on-surface hover:bg-outline-variant/20 transition-colors"
+            >
               <Filter size={16} />
               Filtros
+              {(filters.status !== 'todos' || filters.type !== 'todos' || filters.category !== 'todos') && (
+                <span className="w-2 h-2 rounded-full bg-primary absolute top-2 right-2"></span>
+              )}
             </button>
           </div>
         </div>
@@ -566,6 +593,95 @@ export default function Dashboard() {
                 >
                   Salvar Meta
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Filter Modal */}
+      <AnimatePresence>
+        {isFilterModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsFilterModalOpen(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-md bg-surface-container-lowest rounded-[32px] p-8 shadow-2xl border border-outline-variant/20"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-black text-on-surface">Filtros do Dashboard</h3>
+                <button onClick={() => setIsFilterModalOpen(false)} className="p-2 hover:bg-surface-container-high rounded-full transition-colors">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant px-1">Status</label>
+                  <select 
+                    value={filters.status}
+                    onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+                    className="w-full bg-surface-container-high border-none rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-primary/20"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="pago">Pago / Recebido</option>
+                    <option value="pendente">Pendente</option>
+                    <option value="atrasado">Atrasado</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant px-1">Tipo</label>
+                  <select 
+                    value={filters.type}
+                    onChange={(e) => setFilters(prev => ({ ...prev, type: e.target.value }))}
+                    className="w-full bg-surface-container-high border-none rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-primary/20"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="receita">Receitas</option>
+                    <option value="despesa">Despesas</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant px-1">Categoria</label>
+                  <select 
+                    value={filters.category}
+                    onChange={(e) => setFilters(prev => ({ ...prev, category: e.target.value }))}
+                    className="w-full bg-surface-container-high border-none rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-primary/20"
+                  >
+                    <option value="todos">Todas</option>
+                    {categories.map(c => (
+                      <option key={c.id} value={c.name}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button 
+                    onClick={() => {
+                      setFilters({ status: 'todos', type: 'todos', category: 'todos' });
+                      setIsFilterModalOpen(false);
+                    }}
+                    className="flex-1 py-4 bg-surface-container-high text-on-surface rounded-2xl font-bold hover:bg-surface-container-highest transition-all"
+                  >
+                    Limpar
+                  </button>
+                  <button 
+                    onClick={() => setIsFilterModalOpen(false)}
+                    className="flex-1 py-4 bg-primary text-white rounded-2xl font-black shadow-lg shadow-primary/20 active:scale-95 transition-all"
+                  >
+                    Aplicar
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>
