@@ -21,11 +21,15 @@ import {
   UserCircle2,
   ArrowRightLeft,
   Target,
-  Plus
+  Plus,
+  Database,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 import { useAppContext } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
 import Reminders from './Reminders';
+import { supabase } from '@/lib/supabase';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -60,7 +64,7 @@ const SidebarContent = ({
     { name: 'Orçamentos', icon: Target, href: '/budgets', analistaHidden: true },
     { name: 'Cartões', icon: CreditCard, href: '/cards', analistaHidden: true },
     { name: 'Relatórios', icon: BarChart3, href: '/reports' },
-    { name: 'Clientes', icon: Building2, href: '/clients', adminOrFinanceiro: true },
+    { name: 'Clientes', icon: Building2, href: '/clients', adminOrFinanceiro: true, businessOnly: true },
     { name: 'Usuários', icon: User, href: '/users', adminOrFinanceiro: true },
   ];
 
@@ -85,6 +89,7 @@ const SidebarContent = ({
           if (item.adminOnly && !isAdmin) return null;
           if (item.adminOrFinanceiro && !isAdmin && !isFinanceiro) return null;
           if (item.analistaHidden && isAnalista) return null;
+          if (item.businessOnly && !isBusiness) return null;
           const isActive = pathname === item.href;
           return (
             <Link
@@ -228,6 +233,15 @@ export default function Layout({ children }: LayoutProps) {
           </div>
 
           <div className="flex items-center gap-4">
+            {/* Sync Status Indicator */}
+            <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-full bg-surface-container-high border border-outline-variant/20" title="Status de conexão com o banco de dados">
+              <div className="relative flex items-center justify-center w-4 h-4">
+                <span className="absolute inline-flex h-full w-full rounded-full bg-success opacity-20 animate-ping"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
+              </div>
+              <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Sincronizado</span>
+            </div>
+
             <Reminders />
             <button 
               onClick={() => {

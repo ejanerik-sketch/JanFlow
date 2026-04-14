@@ -66,9 +66,64 @@ export default function BudgetsPage() {
       const b = await localDB.get('budgets', user.uid, context);
       const t = await localDB.get('transactions', user.uid, context);
       const c = await localDB.get('categories', user.uid, context);
+      
       setBudgets(b);
       setTransactions(t);
-      setCategories(c);
+      
+      if (c.length === 0) {
+        // Seed default categories if none exist
+        const defaultCategories = [
+          { name: 'CONTRATO', flow: 'receita', context: 'empresa', color: '#10b981' },
+          { name: 'SERVIÇO AVULSO', flow: 'receita', context: 'empresa', color: '#3b82f6' },
+          { name: 'EM ABERTO', flow: 'receita', context: 'empresa', color: '#f59e0b' },
+          { name: 'Fixas', flow: 'despesa_fixa', context: 'empresa', color: '#ef4444' },
+          { name: 'PRO LABORE', flow: 'despesa_fixa', context: 'empresa', color: '#8b5cf6' },
+          { name: 'IMPOSTO', flow: 'despesa_fixa', context: 'empresa', color: '#6366f1' },
+          { name: 'TAXA DE BANCO', flow: 'despesa_fixa', context: 'empresa', color: '#64748b' },
+          { name: 'ASSINATURA', flow: 'despesa_variavel', context: 'empresa', color: '#ec4899' },
+          { name: 'CONTA CONSUMO', flow: 'despesa_variavel', context: 'empresa', color: '#06b6d4' },
+          { name: 'EQUIPE', flow: 'despesa_variavel', context: 'empresa', color: '#f97316' },
+          { name: 'COMPRINHAS', flow: 'despesa_variavel', context: 'empresa', color: '#84cc16' },
+          { name: 'TRANSPORTE', flow: 'despesa_variavel', context: 'empresa', color: '#14b8a6' },
+          { name: 'COMBUSTÍVEL', flow: 'despesa_variavel', context: 'empresa', color: '#facc15' },
+          { name: 'VIAGEM', flow: 'despesa_variavel', context: 'empresa', color: '#fb7185' },
+          { name: 'CURSOS', flow: 'despesa_variavel', context: 'empresa', color: '#a855f7' },
+          { name: 'COMIDINHAS', flow: 'despesa_variavel', context: 'empresa', color: '#d946ef' },
+          { name: 'CARTÃO PJ', flow: 'despesa_variavel', context: 'empresa', color: '#475569' },
+          { name: 'OUTROS', flow: 'despesa_variavel', context: 'empresa', color: '#94a3b8' },
+          { name: 'SALÁRIO', flow: 'receita', context: 'pessoal', color: '#10b981' },
+          { name: 'COMISSÃO', flow: 'receita', context: 'pessoal', color: '#3b82f6' },
+          { name: 'BÔNUS', flow: 'receita', context: 'pessoal', color: '#f59e0b' },
+          { name: 'CASA', flow: 'despesa_variavel', context: 'pessoal', color: '#ef4444' },
+          { name: 'FINANCIAMENTO', flow: 'despesa_variavel', context: 'pessoal', color: '#8b5cf6' },
+          { name: 'FARMÁCIA/SAÚDE', flow: 'despesa_variavel', context: 'pessoal', color: '#6366f1' },
+          { name: 'ASSINATURA', flow: 'despesa_variavel', context: 'pessoal', color: '#ec4899' },
+          { name: 'IGREJA', flow: 'despesa_variavel', context: 'pessoal', color: '#06b6d4' },
+          { name: 'MERCADO', flow: 'despesa_variavel', context: 'pessoal', color: '#f97316' },
+          { name: 'HORTIFRUTI', flow: 'despesa_variavel', context: 'pessoal', color: '#84cc16' },
+          { name: 'AÇOUGUE', flow: 'despesa_variavel', context: 'pessoal', color: '#14b8a6' },
+          { name: 'QUENTINHA', flow: 'despesa_variavel', context: 'pessoal', color: '#facc15' },
+          { name: 'COMIDINHAS', flow: 'despesa_variavel', context: 'pessoal', color: '#d946ef' },
+          { name: 'COMPRINHAS', flow: 'despesa_variavel', context: 'pessoal', color: '#fb7185' },
+          { name: 'TRANSPORTE', flow: 'despesa_variavel', context: 'pessoal', color: '#a855f7' },
+          { name: 'COMBUSTÍVEL', flow: 'despesa_variavel', context: 'pessoal', color: '#10b981' },
+          { name: 'BELEZA', flow: 'despesa_variavel', context: 'pessoal', color: '#3b82f6' },
+          { name: 'VESTUARIO/CALÇADO', flow: 'despesa_variavel', context: 'pessoal', color: '#f59e0b' },
+          { name: 'LAZER', flow: 'despesa_variavel', context: 'pessoal', color: '#ef4444' },
+          { name: 'VIAGEM', flow: 'despesa_variavel', context: 'pessoal', color: '#8b5cf6' },
+          { name: 'CURSOS', flow: 'despesa_variavel', context: 'pessoal', color: '#6366f1' },
+          { name: 'IMPOSTO', flow: 'despesa_variavel', context: 'pessoal', color: '#ec4899' },
+          { name: 'FATURA', flow: 'despesa_variavel', context: 'pessoal', color: '#06b6d4' },
+          { name: 'OUTROS', flow: 'despesa_variavel', context: 'pessoal', color: '#f97316' },
+        ];
+        for (const cat of defaultCategories) {
+          await localDB.save('categories', { ...cat, uid: user.uid });
+        }
+        const seededCats = await localDB.get('categories', user.uid, context);
+        setCategories(seededCats);
+      } else {
+        setCategories(c);
+      }
     };
 
     loadData();

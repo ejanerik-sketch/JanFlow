@@ -583,17 +583,19 @@ export default function ReportsPage() {
             </h3>
           </div>
 
-          <div className={cn("p-6 rounded-3xl border shadow-lg", themeBorder, themeBg)}>
-            <div className="flex items-center gap-4 mb-4">
-              <div className="w-10 h-10 bg-white/20 text-white rounded-xl flex items-center justify-center">
-                <Activity size={20} />
+          {isBusiness && (
+            <div className={cn("p-6 rounded-3xl border shadow-lg", themeBorder, themeBg)}>
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-10 h-10 bg-white/20 text-white rounded-xl flex items-center justify-center">
+                  <Activity size={20} />
+                </div>
+                <p className="text-xs font-black uppercase tracking-widest text-white/70">Lucro Real</p>
               </div>
-              <p className="text-xs font-black uppercase tracking-widest text-white/70">Saldo do Período</p>
+              <h3 className="text-2xl font-black text-white">
+                {formatCurrency(transactions.reduce((acc: number, t: any) => t.type === 'receita' ? acc + t.value : acc - t.value, 0))}
+              </h3>
             </div>
-            <h3 className="text-2xl font-black text-white">
-              {formatCurrency(transactions.reduce((acc: number, t: any) => t.type === 'receita' ? acc + t.value : acc - t.value, 0))}
-            </h3>
-          </div>
+          )}
         </div>
 
         {/* Cards and Installments Analysis */}

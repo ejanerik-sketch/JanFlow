@@ -300,15 +300,17 @@ export default function Dashboard() {
           </div>
 
           {/* Profit Card */}
-          <div className={cn("p-6 rounded-3xl shadow-lg border transition-all duration-300 hover:translate-y-[-4px]", themeBorder, themeBg)}>
-            <div className="flex items-start justify-between mb-4">
-              <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-white">
-                <Wallet size={24} />
+          {isBusiness && (
+            <div className={cn("p-6 rounded-3xl shadow-lg border transition-all duration-300 hover:translate-y-[-4px]", themeBorder, themeBg)}>
+              <div className="flex items-start justify-between mb-4">
+                <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-white">
+                  <Wallet size={24} />
+                </div>
               </div>
+              <p className="text-white/70 text-xs font-bold uppercase tracking-widest mb-1">Lucro Real</p>
+              <h3 className="text-2xl font-black text-white">{formatCurrency(metrics.profit)}</h3>
             </div>
-            <p className="text-white/70 text-xs font-bold uppercase tracking-widest mb-1">Lucro Real</p>
-            <h3 className="text-2xl font-black text-white">{formatCurrency(metrics.profit)}</h3>
-          </div>
+          )}
 
           {/* Status de Pagamentos Card */}
           <div className="bg-surface-container-lowest p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-outline-variant/20 group hover:translate-y-[-4px] transition-all duration-300">

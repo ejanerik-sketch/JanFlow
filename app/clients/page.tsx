@@ -34,7 +34,7 @@ import { format, addDays, differenceInDays, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 export default function ClientsPage() {
-  const { isAdmin, isFinanceiro, isAuthReady } = useAppContext();
+  const { user, isAdmin, isFinanceiro, isAuthReady } = useAppContext();
   const router = useRouter();
   const [clients, setClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);

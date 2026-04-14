@@ -53,10 +53,11 @@ export const localDB = {
     const dbPayload = convertKeysToSnakeCase(payload);
 
     if (dbPayload.id) {
+      const { id, ...updatePayload } = dbPayload;
       const { data, error } = await supabase
         .from(collection)
-        .update(dbPayload)
-        .eq('id', dbPayload.id)
+        .update(updatePayload)
+        .eq('id', id)
         .select()
         .single();
         
@@ -66,9 +67,11 @@ export const localDB = {
       }
       return convertKeysToCamelCase(data);
     } else {
+      // Remove id if it's undefined to avoid Supabase errors
+      const { id, ...insertPayload } = dbPayload;
       const { data, error } = await supabase
         .from(collection)
-        .insert([dbPayload])
+        .insert([insertPayload])
         .select()
         .single();
         
