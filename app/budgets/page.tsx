@@ -135,10 +135,12 @@ export default function BudgetsPage() {
     if (!user) return;
     setLoading(true);
     try {
+      const { description, ...restData } = data;
       const budgetData = {
-        ...data,
+        ...restData,
         uid: user.uid,
         context: context,
+        month: format(new Date(), 'yyyy-MM'),
         id: editingBudget?.id || undefined,
         createdAt: new Date().toISOString(),
       };
