@@ -378,8 +378,8 @@ export default function Dashboard() {
                 <PieChartIcon size={24} className="text-on-surface-variant opacity-40" />
               </div>
               <div className="h-[300px] w-full flex flex-col md:flex-row items-center">
-                <div className="w-full md:w-1/2 min-h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+                <div className="w-full md:w-1/2 h-[300px]">
+                  <ResponsiveContainer width="100%" height={300} minWidth={1} minHeight={1}>
                     <RePieChart>
                       <Pie
                         data={metrics.categoryDistribution}
