@@ -67,6 +67,9 @@ export default function ClientsPage() {
     value: ''
   });
 
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const triggerRefresh = () => setRefreshTrigger(prev => prev + 1);
+
   useEffect(() => {
     if (isAuthReady && !isAdmin && !isFinanceiro) {
       router.push('/');
@@ -84,9 +87,7 @@ export default function ClientsPage() {
     };
 
     loadData();
-    const interval = setInterval(loadData, 2000);
-    return () => clearInterval(interval);
-  }, [isAdmin, isFinanceiro, user]);
+  }, [isAdmin, isFinanceiro, user, refreshTrigger]);
 
   const handleOpenModal = (clientToEdit: any = null) => {
     if (clientToEdit) {

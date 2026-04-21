@@ -96,6 +96,10 @@ function TransactionsContent() {
   const [previousMonthTransactions, setPreviousMonthTransactions] = useState<any[]>([]);
   const itemsPerPage = 10;
 
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  const triggerRefresh = () => setRefreshTrigger(prev => prev + 1);
+
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<TransactionFormValues>({
     resolver: zodResolver(transactionSchema) as any,
     defaultValues: {
@@ -317,11 +321,7 @@ function TransactionsContent() {
     };
 
     loadData();
-    
-    // In a real app we'd use a custom event or interval
-    const interval = setInterval(loadData, 2000);
-    return () => clearInterval(interval);
-  }, [user, context, selectedMonth]);
+  }, [user, context, selectedMonth, refreshTrigger]);
 
   const closeModal = () => {
     setIsModalOpen(false);
@@ -404,6 +404,7 @@ function TransactionsContent() {
         });
       }
 
+      triggerRefresh();
       closeModal();
     } catch (error) {
       console.error('Error saving transaction:', error);
@@ -434,6 +435,7 @@ function TransactionsContent() {
         });
       }
     }
+    triggerRefresh();
     setIsImportModalOpen(false);
     setImportData('');
   };
@@ -446,6 +448,7 @@ function TransactionsContent() {
     if (!deleteConfirmId) return;
     try {
       await localDB.delete('transactions', deleteConfirmId);
+      triggerRefresh();
       setDeleteConfirmId(null);
     } catch (error) {
       console.error('Error deleting transaction:', error);

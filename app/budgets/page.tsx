@@ -46,6 +46,9 @@ export default function BudgetsPage() {
   const [loading, setLoading] = useState(false);
   const [budgetToDelete, setBudgetToDelete] = useState<string | null>(null);
 
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const triggerRefresh = () => setRefreshTrigger(prev => prev + 1);
+
   const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<BudgetFormValues>({
     resolver: zodResolver(budgetSchema) as any,
     defaultValues: {
@@ -127,9 +130,7 @@ export default function BudgetsPage() {
     };
 
     loadData();
-    const interval = setInterval(loadData, 2000);
-    return () => clearInterval(interval);
-  }, [user, context]);
+  }, [user, context, refreshTrigger]);
 
   const onSubmit = async (data: BudgetFormValues) => {
     if (!user) return;
@@ -146,6 +147,7 @@ export default function BudgetsPage() {
       };
       
       await localDB.save('budgets', budgetData);
+      triggerRefresh();
       setIsModalOpen(false);
       setEditingBudget(null);
       reset();
@@ -159,6 +161,7 @@ export default function BudgetsPage() {
   const confirmDelete = async () => {
     if (budgetToDelete) {
       await localDB.delete('budgets', budgetToDelete);
+      triggerRefresh();
       setBudgetToDelete(null);
     }
   };

@@ -42,6 +42,9 @@ export default function CardsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [cardToDelete, setCardToDelete] = useState<string | null>(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const triggerRefresh = () => setRefreshTrigger(prev => prev + 1);
+
   const prevSelectedCardId = React.useRef<string | null>(null);
 
   useEffect(() => {
@@ -79,9 +82,7 @@ export default function CardsPage() {
     };
 
     loadData();
-    const interval = setInterval(loadData, 2000);
-    return () => clearInterval(interval);
-  }, [user, context, selectedCardId]);
+  }, [user, context, selectedCardId, refreshTrigger]);
 
   useEffect(() => {
     if (!user || !selectedCardId) return;
@@ -99,9 +100,7 @@ export default function CardsPage() {
     };
 
     loadTransactions();
-    const interval = setInterval(loadTransactions, 2000);
-    return () => clearInterval(interval);
-  }, [user, selectedCardId, context]);
+  }, [user, selectedCardId, context, refreshTrigger]);
 
   const handleAddCard = async () => {
     if (!newCard.name || !user) return;
@@ -123,6 +122,7 @@ export default function CardsPage() {
         await localDB.save('cards', payload);
       }
 
+      triggerRefresh();
       setIsModalOpen(false);
       setEditingCard(null);
       setNewCard({ name: '', bank: '', brand: '', type: context === 'empresa' ? 'pj' : 'pessoal', closingDay: '10' });
@@ -141,6 +141,7 @@ export default function CardsPage() {
   const confirmDelete = async () => {
     if (cardToDelete) {
       await localDB.delete('cards', cardToDelete);
+      triggerRefresh();
       if (selectedCardId === cardToDelete) setSelectedCardId(null);
       setCardToDelete(null);
     }

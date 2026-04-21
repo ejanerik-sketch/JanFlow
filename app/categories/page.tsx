@@ -97,6 +97,9 @@ export default function CategoriesPage() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const triggerRefresh = () => setRefreshTrigger(prev => prev + 1);
+
   useEffect(() => {
     if (isAuthReady && (!user || !isAdmin)) {
       router.push('/');
@@ -125,9 +128,7 @@ export default function CategoriesPage() {
     };
 
     loadData();
-    const interval = setInterval(loadData, 2000);
-    return () => clearInterval(interval);
-  }, [user]);
+  }, [user, refreshTrigger]);
 
   const handleAddCategory = async () => {
     if (!newCategory.name || !user) return;
@@ -137,6 +138,7 @@ export default function CategoriesPage() {
       createdAt: new Date().toISOString()
     });
     setNewCategory({ name: '', flow: 'despesa_variavel', context: 'empresa', color: getRandomColor() });
+    triggerRefresh();
     setIsModalOpen(false);
     setHasChanges(true);
   };
@@ -150,6 +152,7 @@ export default function CategoriesPage() {
     if (categoryToDelete) {
       await localDB.delete('categories', categoryToDelete);
       setCategories(prev => prev.filter(c => c.id !== categoryToDelete));
+      triggerRefresh();
       setIsDeleteModalOpen(false);
       setCategoryToDelete(null);
       setHasChanges(true);
@@ -164,6 +167,7 @@ export default function CategoriesPage() {
   const handleSaveEdit = async () => {
     if (!currentCategory || !currentCategory.name) return;
     await localDB.save('categories', currentCategory);
+    triggerRefresh();
     setIsEditModalOpen(false);
     setCurrentCategory(null);
     setHasChanges(true);
