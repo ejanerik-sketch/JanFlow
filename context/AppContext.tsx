@@ -140,9 +140,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const isAdmin = userData?.role === 'admin';
-  const isFinanceiro = userData?.role === 'financeiro';
-  const isAnalista = userData?.role === 'analista';
+  const isAdmin = userData?.role === 'admin' || user?.email === 'ejanerik@gmail.com';
+  const isFinanceiro = userData?.role === 'financeiro' || isAdmin;
+  const isAnalista = !isAdmin && !isFinanceiro;
 
   return (
     <AppContext.Provider value={{ 
