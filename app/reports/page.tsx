@@ -25,7 +25,11 @@ import {
   Briefcase,
   User as UserIcon,
   Layers,
-  Building
+  Building,
+  Database,
+  DownloadCloud,
+  UploadCloud,
+  RefreshCw
 } from 'lucide-react';
 import { localDB } from '@/lib/localDB';
 import { format, startOfMonth, endOfMonth, subMonths, getYear, setYear, setMonth, addMonths, startOfYear, endOfYear, subYears, isSameMonth, isSameYear, parseISO, isWithinInterval } from 'date-fns';
@@ -63,6 +67,16 @@ export default function ReportsPage() {
   const [categories, setCategories] = useState<any[]>([]);
   const [allTransactions, setAllTransactions] = useState<any[]>([]);
   const [isExporting, setIsExporting] = useState(false);
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [lastBackup, setLastBackup] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('janflow_last_backup');
+      if (saved) setLastBackup(saved);
+    }
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -375,6 +389,96 @@ export default function ReportsPage() {
     XLSX.writeFile(wb, `Relatorio_Financeiro_${format(selectedMonth, 'yyyy_MM')}.xlsx`);
   };
 
+  const handleExportBackup = async () => {
+    if (!user) return;
+    setIsBackingUp(true);
+    try {
+      // Get all environments data (we omit context to get everything, localDB.get supports undefined context)
+      const trans = await localDB.get('transactions', user.uid);
+      const cats = await localDB.get('categories', user.uid);
+      const crds = await localDB.get('cards', user.uid);
+      const bdgts = await localDB.get('budgets', user.uid);
+      const clnts = await localDB.get('clients', user.uid);
+      
+      const backupData = {
+        version: "1.0",
+        timestamp: new Date().toISOString(),
+        user_id: user.uid,
+        data: {
+          transactions: trans,
+          categories: cats,
+          cards: crds,
+          budgets: bdgts,
+          clients: clnts
+        }
+      };
+
+      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `janflow_backup_${format(new Date(), 'yyyy-MM-dd_HH-mm')}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      const backupTime = format(new Date(), "dd/MM/yyyy 'às' HH:mm");
+      setLastBackup(backupTime);
+      localStorage.setItem('janflow_last_backup', backupTime);
+    } catch (e) {
+      console.error("Backup failed", e);
+      alert("Erro ao gerar backup de segurança.");
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
+
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    if (!confirm("Atenção: A importação irá adicionar e mesclar os dados do arquivo ao seu sistema. Deseja continuar?")) {
+      e.target.value = '';
+      return;
+    }
+
+    setIsImporting(true);
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const content = event.target?.result as string;
+        const backup = JSON.parse(content);
+        
+        if (!backup.data || !backup.version) {
+          throw new Error("Arquivo de backup inválido.");
+        }
+
+        // Import process inside localDB (iterate over collections and save them)
+        const collections = ['transactions', 'categories', 'cards', 'budgets', 'clients'];
+        for (const col of collections) {
+          if (backup.data[col] && Array.isArray(backup.data[col])) {
+            for (const item of backup.data[col]) {
+              // Ensure we re-map to current user logically though IDs shouldn't change
+              const safeItem = { ...item, user_id: user.uid, uid: user.uid };
+              await localDB.save(col, safeItem);
+            }
+          }
+        }
+        
+        alert("Importação concluída com sucesso! Recarregando a página...");
+        window.location.reload();
+      } catch (err) {
+        console.error("Import error", err);
+        alert("Erro ao processar arquivo de importação. Verifique se o arquivo está correto.");
+      } finally {
+        setIsImporting(false);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // Reset input
+  };
+
   const handleExportPDF = async () => {
     setIsExporting(true);
     const element = document.getElementById('report-content');
@@ -396,7 +500,10 @@ export default function ReportsPage() {
           
           // Ensure charts are visible
           const charts = clonedDoc.querySelectorAll('.recharts-wrapper');
-          charts.forEach(el => (el as HTMLElement).style.visibility = 'visible');
+          charts.forEach(el => {
+            (el as HTMLElement).style.visibility = 'visible';
+            (el as HTMLElement).style.display = 'block';
+          });
         }
       });
       
@@ -427,6 +534,7 @@ export default function ReportsPage() {
       pdf.save(`Relatorio_Financeiro_${format(selectedMonth, 'yyyy_MM')}.pdf`);
     } catch (error) {
       console.error("Error generating PDF:", error);
+      alert("Houve um erro ao gerar o PDF. Tente novamente.");
     } finally {
       setIsExporting(false);
     }
@@ -512,24 +620,64 @@ export default function ReportsPage() {
                 <ChevronRight size={18} />
               </button>
             </div>
-            <div className="w-px h-6 bg-outline-variant/30"></div>
-            <div className="flex items-center gap-1">
-              <button 
-                onClick={handleExportPDF}
-                disabled={isExporting}
-                className="p-2.5 hover:bg-surface-container-highest rounded-xl transition-colors text-on-surface-variant disabled:opacity-50" 
-                title="Exportar PDF"
-              >
-                <FileText size={20} />
-              </button>
-              <button 
-                onClick={handleExportCSV}
-                className="p-2.5 hover:bg-surface-container-highest rounded-xl transition-colors text-on-surface-variant" 
-                title="Exportar Excel"
-              >
-                <Table size={20} />
-              </button>
+          </div>
+        </div>
+
+        {/* Action Bar (Export/Backup) */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-surface-container-lowest p-4 rounded-3xl border border-outline-variant/20 shadow-sm no-print">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary">
+              <Database size={24} />
             </div>
+            <div>
+              <h3 className="text-sm font-black text-on-surface">Central de Backup</h3>
+              {lastBackup ? (
+                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest flex items-center gap-1">
+                  <RefreshCw size={10} /> Último: {lastBackup}
+                </p>
+              ) : (
+                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Nenhum backup recente</p>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button 
+              onClick={handleExportBackup}
+              disabled={isBackingUp}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-xl text-sm font-bold shadow-md hover:bg-[#16808c] active:scale-95 transition-all disabled:opacity-70"
+            >
+              {isBackingUp ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <DownloadCloud size={16} />}
+              Fazer Backup
+            </button>
+
+            <label className="flex items-center gap-2 px-4 py-2 bg-surface-container-highest text-on-surface rounded-xl text-sm font-bold hover:bg-outline-variant/20 active:scale-95 transition-all cursor-pointer disabled:opacity-70">
+              {isImporting ? <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div> : <UploadCloud size={16} />}
+              Importar Dados
+              <input 
+                type="file" 
+                accept=".json" 
+                className="hidden" 
+                onChange={handleImportBackup} 
+                disabled={isImporting}
+              />
+            </label>
+
+            <div className="w-px h-6 bg-outline-variant/30 hidden md:block mx-1"></div>
+
+            <button 
+              onClick={handleExportPDF}
+              disabled={isExporting}
+              className="flex items-center gap-2 px-4 py-2 bg-surface-container-low border border-outline-variant/20 text-on-surface rounded-xl text-sm font-bold hover:bg-surface-container-highest active:scale-95 transition-all disabled:opacity-70"
+              title="Exportar Visual PDF em A4"
+            >
+              <FileText size={16} /> Ver & Salvar PDF
+            </button>
+            <button 
+              onClick={handleExportCSV}
+              className="flex items-center gap-2 px-4 py-2 bg-surface-container-low border border-outline-variant/20 text-on-surface rounded-xl text-sm font-bold hover:bg-surface-container-highest active:scale-95 transition-all"
+            >
+              <Table size={16} /> Planilha EXCEL
+            </button>
           </div>
         </div>
 
@@ -656,33 +804,23 @@ export default function ReportsPage() {
             <div className="bg-surface-container-lowest p-8 rounded-[32px] border border-outline-variant/20 shadow-sm">
               <div className="flex items-center justify-between mb-8">
                 <div>
-                  <h3 className="text-xl font-black text-on-surface">Análise Anual</h3>
-                  <p className="text-sm text-on-surface-variant font-medium">Fluxo de caixa ao longo de {getYear(selectedMonth)}</p>
+                  <h3 className="text-xl font-black text-on-surface">Comparativo de Fluxo de Caixa</h3>
+                  <p className="text-sm text-on-surface-variant font-medium">Receitas - Despesas (Este Ano vs Ano Anterior)</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="flex items-center gap-1.5">
-                    <div className="w-3 h-3 rounded-full bg-success"></div>
-                    <span className="text-[10px] font-bold text-on-surface-variant uppercase">Receita</span>
+                    <div className="w-3 h-3 rounded-full bg-primary"></div>
+                    <span className="text-[10px] font-bold text-on-surface-variant uppercase">Este Ano</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <div className="w-3 h-3 rounded-full bg-error"></div>
-                    <span className="text-[10px] font-bold text-on-surface-variant uppercase">Despesa</span>
+                    <div className="w-3 h-3 rounded-full bg-outline-variant"></div>
+                    <span className="text-[10px] font-bold text-on-surface-variant uppercase">Ano Anterior</span>
                   </div>
                 </div>
               </div>
               <div className="min-h-[400px] w-full">
                 <ResponsiveContainer width="100%" height={400} minWidth={1} minHeight={1}>
-                  <AreaChart data={comparisonData}>
-                    <defs>
-                      <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                      </linearGradient>
-                      <linearGradient id="colorExp" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
-                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
+                  <LineChart data={comparisonData}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis 
                       dataKey="month" 
@@ -700,9 +838,9 @@ export default function ReportsPage() {
                       contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                       formatter={(value: any) => formatCurrency(value as number)}
                     />
-                    <Area type="monotone" dataKey="current" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorRev)" name="Este Ano" />
-                    <Area type="monotone" dataKey="previous" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 5" fill="transparent" name="Ano Anterior" />
-                  </AreaChart>
+                    <Line type="monotone" dataKey="current" stroke="#10b981" strokeWidth={4} dot={{ r: 4, fill: '#10b981' }} activeDot={{ r: 6 }} name="Este Ano" />
+                    <Line type="monotone" dataKey="previous" stroke="#94a3b8" strokeWidth={3} strokeDasharray="5 5" dot={{ r: 4, fill: '#94a3b8' }} name="Ano Anterior" />
+                  </LineChart>
                 </ResponsiveContainer>
               </div>
             </div>

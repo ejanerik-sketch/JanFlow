@@ -288,17 +288,6 @@ export default function Dashboard() {
                 ))}
               </select>
             </div>
-            <div className="w-px h-6 bg-outline-variant/30"></div>
-            <button 
-              onClick={() => setIsFilterModalOpen(true)}
-              className="relative flex items-center gap-2 px-4 py-2 bg-surface-container-highest rounded-xl text-sm font-bold text-on-surface hover:bg-outline-variant/20 transition-colors"
-            >
-              <Filter size={16} />
-              Filtros
-              {(filters.status !== 'todos' || filters.type !== 'todos' || filters.category !== 'todos') && (
-                <span className="w-2 h-2 rounded-full bg-primary absolute top-2 right-2"></span>
-              )}
-            </button>
           </div>
         </div>
 
