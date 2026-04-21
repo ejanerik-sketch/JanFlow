@@ -248,17 +248,17 @@ export default function Reminders() {
                             disabled={sendingEmailId === reminder.id}
                             className={cn(
                               "opacity-0 group-hover:opacity-100 transition-opacity text-xs font-bold flex items-center justify-center w-8 h-8 rounded-md",
-                              emailStatus?.id === reminder.id && emailStatus.status === 'success' ? "text-success bg-success/10" :
-                              emailStatus?.id === reminder.id && emailStatus.status === 'error' ? "text-error bg-error/10" :
+                              emailStatus?.id === reminder.id && emailStatus?.status === 'success' ? "text-success bg-success/10" :
+                              emailStatus?.id === reminder.id && emailStatus?.status === 'error' ? "text-error bg-error/10" :
                               "text-primary hover:bg-primary/10"
                             )}
                             title="Enviar lembrete por e-mail"
                           >
                             {sendingEmailId === reminder.id ? (
                               <Loader2 size={14} className="animate-spin" />
-                            ) : emailStatus?.id === reminder.id && emailStatus.status === 'success' ? (
+                            ) : emailStatus?.id === reminder.id && emailStatus?.status === 'success' ? (
                               <Check size={14} />
-                            ) : emailStatus?.id === reminder.id && emailStatus.status === 'error' ? (
+                            ) : emailStatus?.id === reminder.id && emailStatus?.status === 'error' ? (
                               <AlertCircle size={14} />
                             ) : (
                               <Mail size={14} />

@@ -86,11 +86,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const checkSession = async () => {
       try {
         const sessionResult = await safeAwait(
-          supabase.auth.getSession(),
+          supabase.auth.getSession() as any,
           8000,
           { data: { session: null } }
         );
-        const session = sessionResult?.data?.session;
+        const session = (sessionResult as any)?.data?.session;
         
         if (session?.user) {
           setUser({ uid: session.user.id, email: session.user.email });
