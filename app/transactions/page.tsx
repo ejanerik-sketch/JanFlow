@@ -344,13 +344,13 @@ function TransactionsContent() {
       const finalEntityName = data.entityName === 'outro' ? data.otherEntityName || 'Outro' : data.entityName;
 
       // Extract only the fields that exist in the database schema
-      const basePayload = {
+      const basePayload: any = {
         type: data.type,
         category: data.category,
         entityName: finalEntityName,
         description: data.description || data.observation || '',
         value: data.value,
-        status: isCreditCard ? 'pago' : data.status,
+        status: data.status, // Allow user-selected status even for credit cards when editing
         paymentMethod: data.paymentMethod,
         cardId: data.cardId || null,
         isInstallment: data.isInstallment || false,
@@ -360,22 +360,32 @@ function TransactionsContent() {
         recurrent: data.recurrent || false,
         uid: user.uid,
         context,
-        createdAt: new Date().toISOString(),
+        firstInstallmentDate: data.firstInstallmentDate ? new Date(data.firstInstallmentDate + 'T12:00:00Z').toISOString() : null,
       };
+
+      // Ensure we don't overwrite createdAt when editing
+      if (!editingTransaction) {
+        basePayload.createdAt = new Date().toISOString();
+        if (isCreditCard) {
+            basePayload.status = 'pago'; // Force pago only on new CC entries
+        }
+      }
 
       if (editingTransaction) {
         await localDB.save('transactions', { 
           ...basePayload, 
           id: editingTransaction.id,
-          date: new Date(data.date).toISOString(),
-          renewalDate: data.renewalDate ? new Date(data.renewalDate).toISOString() : null,
+          date: new Date(data.date + 'T12:00:00Z').toISOString(),
+          renewalDate: data.renewalDate ? new Date(data.renewalDate + 'T12:00:00Z').toISOString() : null,
         });
       } else if (hasInstallments) {
         // Handle installments
         const installmentValue = data.value / data.installments;
-        const baseDate = (data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate
-          ? new Date(data.firstInstallmentDate) 
-          : new Date(data.date);
+        const rawDate = (data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate
+          ? data.firstInstallmentDate
+          : data.date;
+        
+        const baseDate = new Date(rawDate + 'T12:00:00Z');
         
         const startDate = baseDate;
         const groupId = Math.random().toString(36).substr(2, 9);
@@ -399,8 +409,8 @@ function TransactionsContent() {
       } else {
         await localDB.save('transactions', {
           ...basePayload,
-          date: new Date(data.date).toISOString(),
-          renewalDate: data.renewalDate ? new Date(data.renewalDate).toISOString() : null,
+          date: new Date(data.date + 'T12:00:00Z').toISOString(),
+          renewalDate: data.renewalDate ? new Date(data.renewalDate + 'T12:00:00Z').toISOString() : null,
         });
       }
 
@@ -457,13 +467,20 @@ function TransactionsContent() {
 
   const handleEdit = React.useCallback((transaction: any) => {
     setEditingTransaction(transaction);
-    const tDate = new Date(transaction.date?.seconds ? transaction.date.seconds * 1000 : transaction.date);
-    const rDate = transaction.renewalDate ? new Date(transaction.renewalDate?.seconds ? transaction.renewalDate.seconds * 1000 : transaction.renewalDate) : null;
     
+    // Safely get date string from various possible formats
+    const getDateString = (dateVal: any) => {
+      if (!dateVal) return '';
+      if (typeof dateVal === 'string' && dateVal.includes('T')) return dateVal.split('T')[0];
+      const d = new Date(dateVal?.seconds ? dateVal.seconds * 1000 : dateVal);
+      // Fallback format if it's not a standard ISO string
+      return format(d, 'yyyy-MM-dd');
+    };
+
     reset({
       ...transaction,
-      date: format(tDate, 'yyyy-MM-dd'),
-      renewalDate: rDate ? format(rDate, 'yyyy-MM-dd') : undefined,
+      date: getDateString(transaction.date),
+      renewalDate: transaction.renewalDate ? getDateString(transaction.renewalDate) : undefined,
       isShared: !!transaction.sharedWith,
     });
     setIsModalOpen(true);
@@ -512,6 +529,7 @@ function TransactionsContent() {
     const transaction = transactions.find(t => t.id === id);
     if (transaction) {
       await localDB.save('transactions', { ...transaction, status: newStatus });
+      triggerRefresh();
     }
   };
 

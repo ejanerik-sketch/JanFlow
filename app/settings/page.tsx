@@ -293,9 +293,9 @@ export default function SettingsPage() {
                   <p><span className="text-primary font-bold">{`{{transactionName}}`}</span> - Nome da transação</p>
                   <p><span className="text-primary font-bold">{`{{value}}`}</span> - Valor formatado (ex: R$ 1.500,00)</p>
                   <p><span className="text-primary font-bold">{`{{dueDate}}`}</span> - Data de vencimento (ex: 15/04/2026)</p>
-                  <p><span className="text-primary font-bold">{`{{type}}`}</span> - "A Pagar" ou "A Receber"</p>
-                  <p><span className="text-primary font-bold">{`{{actionText}}`}</span> - "pagar" ou "receber"</p>
-                  <p><span className="text-primary font-bold">{`{{titleText}}`}</span> - "Lembrete de Pagamento" ou "Lembrete de Recebimento"</p>
+                  <p><span className="text-primary font-bold">{`{{type}}`}</span> - &quot;A Pagar&quot; ou &quot;A Receber&quot;</p>
+                  <p><span className="text-primary font-bold">{`{{actionText}}`}</span> - &quot;pagar&quot; ou &quot;receber&quot;</p>
+                  <p><span className="text-primary font-bold">{`{{titleText}}`}</span> - &quot;Lembrete de Pagamento&quot; ou &quot;Lembrete de Recebimento&quot;</p>
                 </div>
 
                 <div className="space-y-2">

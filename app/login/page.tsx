@@ -10,8 +10,8 @@ import { cn } from '@/lib/utils';
 export default function LoginPage() {
   const router = useRouter();
   const { user, isAuthReady } = useAppContext();
-  const [email, setEmail] = useState('ejanerik@gmail.com');
-  const [password, setPassword] = useState('SistemaJanAgencia');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);

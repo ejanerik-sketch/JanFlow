@@ -78,7 +78,7 @@ export default function UsersPage() {
       setFormData({
         name: userToEdit.name || '',
         email: userToEdit.email || '',
-        password: userToEdit.password || '',
+        password: '',
         role: userToEdit.role || 'analista',
         photoURL: userToEdit.photoURL || ''
       });
@@ -105,16 +105,49 @@ export default function UsersPage() {
 
     try {
       if (editingUser) {
+        // 1. Update Profile in public.profiles
+        const profileUpdate: any = {
+          name: formData.name,
+          role: formData.role,
+          photoURL: formData.photoURL
+        };
+        
+        // If password is provided, also update it in the profiles table if it's used there
+        if (formData.password) {
+          profileUpdate.password = formData.password;
+        }
+
         const { error: profileError } = await supabase
           .from('profiles')
-          .update({
-            name: formData.name,
-            role: formData.role,
-            photoURL: formData.photoURL
-          })
+          .update(profileUpdate)
           .eq('id', editingUser.id);
 
         if (profileError) throw profileError;
+
+        // 2. Update Password if provided
+        if (formData.password) {
+          const isCurrentUser = String(editingUser.id) === String(user?.uid || user?.id);
+          
+          if (isCurrentUser) {
+            // Update current user password
+            const { error: authError } = await supabase.auth.updateUser({
+              password: formData.password
+            });
+            if (authError) throw authError;
+          } else {
+            // Attempt to update via API route if admin
+            const response = await fetch('/api/users/update-password', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: editingUser.id, password: formData.password }),
+            });
+            
+            if (!response.ok) {
+              const resData = await response.json();
+              throw new Error(resData.error || 'Erro ao atualizar senha de outro usuário. Certifique-se que o Admin tenha a Role Key configurada.');
+            }
+          }
+        }
         
         setUsers(users.map(u => u.id === editingUser.id ? { ...u, name: formData.name, role: formData.role, photoURL: formData.photoURL } : u));
         setSuccess('Usuário atualizado com sucesso!');
@@ -487,19 +520,19 @@ export default function UsersPage() {
                     />
                   </div>
 
-                  {!editingUser && (
-                    <div className="space-y-2">
-                      <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Senha Inicial</label>
-                      <input
-                        type="password"
-                        required
-                        value={formData.password}
-                        onChange={(e) => setFormData({...formData, password: e.target.value})}
-                        className="w-full px-5 py-4 bg-surface-container-high border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-primary/20 transition-all"
-                        placeholder="••••••••"
-                      />
-                    </div>
-                  )}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">
+                      {editingUser ? 'Nova Senha (deixe em branco para não alterar)' : 'Senha Inicial'}
+                    </label>
+                    <input
+                      type="password"
+                      required={!editingUser}
+                      value={formData.password}
+                      onChange={(e) => setFormData({...formData, password: e.target.value})}
+                      className="w-full px-5 py-4 bg-surface-container-high border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-primary/20 transition-all"
+                      placeholder="••••••••"
+                    />
+                  </div>
 
                   <div className="space-y-2">
                     <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Nível de Acesso</label>
