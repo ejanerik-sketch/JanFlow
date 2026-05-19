@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 
 export async function POST(req: Request) {
   try {
@@ -10,18 +9,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'ID do usuário e senha são obrigatórios.' }, { status: 400 });
     }
 
-    // Verify if the requester is an admin
-    // In a real app, we should check the session of the requester here
-    // For now, we rely on the client calling this being an admin, but it's better to verify server-side
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
-    
-    // Get the requester session from headers
-    const authHeader = req.headers.get('Authorization');
-    // ... verification logic ... (skipped for simplicity but recommended)
-
-    const { data, error } = await supabaseAdmin.auth.admin.updateUserById(
+    const adminClient = getSupabaseAdmin();
+    const { data, error } = await adminClient.auth.admin.updateUserById(
       userId,
       { password: password }
     );
