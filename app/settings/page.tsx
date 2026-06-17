@@ -18,13 +18,12 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { doc, updateDoc } from 'firebase/firestore';
-import { db } from '@/firebase';
+import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { user, userData, isAuthReady, context } = useAppContext();
+  const { user, userData, isAuthReady, context, refreshUserData } = useAppContext();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [formData, setFormData] = useState({
@@ -49,13 +48,15 @@ export default function SettingsPage() {
       const savedSubject = localStorage.getItem(`janflow_email_subject_${user.uid}`);
       const savedHtml = localStorage.getItem(`janflow_email_html_${user.uid}`);
       
+      const savedPrefs = JSON.parse(localStorage.getItem(`janflow_prefs_${user.uid}`) || '{}');
+
       setFormData({
         name: userData.name || '',
         email: user?.email || '',
         role: userData.role || 'Usuário',
-        notifications: userData.notifications ?? true,
-        darkMode: userData.darkMode ?? false,
-        language: userData.language || 'pt-BR',
+        notifications: savedPrefs.notifications ?? true,
+        darkMode: savedPrefs.darkMode ?? false,
+        language: savedPrefs.language || 'pt-BR',
         emailSubject: savedSubject || '[JanFlow] Lembrete: {{transactionName}}',
         emailHtml: savedHtml || `<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
   <h2 style="color: #1d8490;">{{titleText}}</h2>
@@ -81,18 +82,26 @@ export default function SettingsPage() {
     setLoading(true);
     setMessage(null);
     try {
-      const userDocRef = doc(db, 'users', user.uid);
-      await updateDoc(userDocRef, {
-        name: formData.name,
+      // Nome do perfil → Supabase (fonte da verdade). A policy "Users can update
+      // own profile" permite o usuário atualizar o próprio nome; o trigger de
+      // proteção impede qualquer mudança de role aqui.
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({ name: formData.name })
+        .eq('id', user.uid);
+
+      if (profileError) throw profileError;
+
+      // Preferências de UI (sem coluna no schema) e template de e-mail → localStorage
+      localStorage.setItem(`janflow_prefs_${user.uid}`, JSON.stringify({
         notifications: formData.notifications,
         darkMode: formData.darkMode,
-        language: formData.language
-      });
-      
-      // Save email template to localStorage
+        language: formData.language,
+      }));
       localStorage.setItem(`janflow_email_subject_${user.uid}`, formData.emailSubject);
       localStorage.setItem(`janflow_email_html_${user.uid}`, formData.emailHtml);
-      
+
+      await refreshUserData();
       setMessage({ type: 'success', text: 'Configurações salvas com sucesso!' });
     } catch (error) {
       console.error('Erro ao salvar configurações:', error);

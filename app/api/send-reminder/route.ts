@@ -1,12 +1,27 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
+import { getAuthedUser, AuthError } from '@/lib/apiAuth';
+import { rateLimit, clientKey } from '@/lib/rateLimit';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 // Initialize Resend with the API key from environment variables
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function POST(request: Request) {
   try {
-    const { to, transactionName, value, dueDate, type, customSubject, customHtml } = await request.json();
+    if (!rateLimit(clientKey(request, 'send-reminder'), 10, 60_000)) {
+      return NextResponse.json(
+        { error: 'Muitas tentativas. Tente novamente em instantes.' },
+        { status: 429 }
+      );
+    }
+
+    // ALTO: exige sessão autenticada para impedir relay de e-mail aberto.
+    const authedUser = await getAuthedUser(request);
+
+    const { transactionName, value, dueDate, type, customSubject, customHtml } = await request.json();
 
     if (!process.env.RESEND_API_KEY) {
       return NextResponse.json(
@@ -15,9 +30,19 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!to || !transactionName || !value || !dueDate) {
+    // O destinatário é SEMPRE o e-mail do usuário autenticado — ignora qualquer
+    // `to` vindo do corpo, eliminando o vetor de relay/phishing para terceiros.
+    const to = authedUser.email;
+    if (!to) {
       return NextResponse.json(
-        { error: 'Campos obrigatórios ausentes (to, transactionName, value, dueDate)' },
+        { error: 'Usuário autenticado não possui e-mail válido.' },
+        { status: 400 }
+      );
+    }
+
+    if (!transactionName || !value || !dueDate) {
+      return NextResponse.json(
+        { error: 'Campos obrigatórios ausentes (transactionName, value, dueDate)' },
         { status: 400 }
       );
     }
@@ -84,6 +109,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, data });
   } catch (error: any) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Failed to send email:', error);
     return NextResponse.json(
       { error: 'Falha ao enviar e-mail', details: error.message },

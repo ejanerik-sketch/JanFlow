@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Bell, AlertCircle, CheckCircle2, Clock, Check, Mail, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { localDB } from '@/lib/localDB';
+import { supabase } from '@/lib/supabase';
 import { useAppContext } from '@/context/AppContext';
 import { format, differenceInDays, parseISO, isAfter, isBefore, addDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -100,13 +101,18 @@ export default function Reminders() {
       const customSubject = localStorage.getItem(`janflow_email_subject_${user.uid}`) || undefined;
       const customHtml = localStorage.getItem(`janflow_email_html_${user.uid}`) || undefined;
 
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('Sessão expirada. Faça login novamente.');
+      }
+
       const response = await fetch('/api/send-reminder', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          to: user.email,
           transactionName: transaction.entityName,
           value: transaction.value,
           dueDate: format(parseISO(transaction.date), 'dd/MM/yyyy'),

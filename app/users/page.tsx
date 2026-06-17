@@ -135,10 +135,17 @@ export default function UsersPage() {
             });
             if (authError) throw authError;
           } else {
-            // Attempt to update via API route if admin
+            // Update via API route — exige sessão de admin (token no header)
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session?.access_token) {
+              throw new Error('Sessão expirada. Faça login novamente.');
+            }
             const response = await fetch('/api/users/update-password', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${session.access_token}`,
+              },
               body: JSON.stringify({ userId: editingUser.id, password: formData.password }),
             });
             
