@@ -10,3 +10,7 @@ coverage/
 *.tsbuildinfo
 .claude/
 .playwright-cli/
+
+# docs internos e instruções (preço/vulns/infra) — fora do repo do cliente
+CLAUDE.md
+docs/
