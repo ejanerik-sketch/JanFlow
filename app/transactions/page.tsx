@@ -31,7 +31,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { localDB } from '@/lib/localDB';
 import { format, startOfMonth, endOfMonth, isWithinInterval, getYear, setYear, setMonth, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { cn } from '@/lib/utils';
+import { cn, parseLocalDate, toDbDate } from '@/lib/utils';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -132,13 +132,13 @@ function TransactionsContent() {
 
   const loadPreviousMonthTransactions = async () => {
     if (!user) return;
-    const prevMonthDate = addMonths(new Date(), -1);
+    const prevMonthDate = addMonths(selectedMonth, -1);
     const start = startOfMonth(prevMonthDate);
     const end = endOfMonth(prevMonthDate);
 
     const allTrans = await localDB.get('transactions', user.uid, context);
     const filtered = allTrans.filter((t: any) => {
-      const tDate = new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date);
+      const tDate = parseLocalDate(t.date);
       return isWithinInterval(tDate, { start, end }) && t.type === transactionType;
     });
 
@@ -198,7 +198,7 @@ function TransactionsContent() {
     if (editingTransaction && relatedInstallments.length > 0 && watchedInstallments === editingTransaction.installments) {
       return relatedInstallments.map(t => ({
         number: t.currentInstallment,
-        date: new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date),
+        date: parseLocalDate(t.date),
         value: t.value,
         status: t.status,
         isCurrent: t.id === editingTransaction.id
@@ -242,22 +242,28 @@ function TransactionsContent() {
     if (!user) return;
 
     const loadData = async () => {
-      const start = startOfMonth(selectedMonth);
-      const end = endOfMonth(selectedMonth);
+      const from = format(startOfMonth(selectedMonth), 'yyyy-MM-dd');
+      const to = format(endOfMonth(selectedMonth), 'yyyy-MM-dd');
 
-      const trans = await localDB.get('transactions', user.uid, context);
-      const filtered = trans.filter((t: any) => {
-        const tDate = new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date);
-        return isWithinInterval(tDate, { start, end });
-      });
+      // Busca em paralelo (antes eram 3-4 round-trips sequenciais). As
+      // transações já vêm filtradas pelo mês direto do banco.
+      const [trans, cats, crds] = await Promise.all([
+        localDB.get('transactions', user.uid, context, { from, to }),
+        localDB.get('categories', user.uid, context),
+        localDB.get('cards', user.uid, context),
+      ]);
 
-      setTransactions(filtered.sort((a: any, b: any) => {
-        const dateA = new Date(a.date?.seconds ? a.date.seconds * 1000 : a.date).getTime();
-        const dateB = new Date(b.date?.seconds ? b.date.seconds * 1000 : b.date).getTime();
+      setTransactions([...trans].sort((a: any, b: any) => {
+        const dateA = parseLocalDate(a.date).getTime();
+        const dateB = parseLocalDate(b.date).getTime();
         return dateB - dateA;
       }));
 
-      const cats = await localDB.get('categories', user.uid, context);
+      setCards(crds);
+
+      const savedClients = localStorage.getItem('janflow_clients_list');
+      setClients(savedClients ? JSON.parse(savedClients) : []);
+
       if (cats.length === 0) {
         // Seed default categories if none exist
         const defaultCategories = [
@@ -304,20 +310,16 @@ function TransactionsContent() {
           { name: 'FATURA', flow: 'despesa_variavel', context: 'pessoal', color: '#06b6d4' },
           { name: 'OUTROS', flow: 'despesa_variavel', context: 'pessoal', color: '#f97316' },
         ];
-        for (const cat of defaultCategories) {
-          await localDB.save('categories', { ...cat, uid: user.uid });
-        }
+        // Insere todas de uma vez (1 round-trip) em vez de ~40 sequenciais.
+        await localDB.saveMany(
+          'categories',
+          defaultCategories.map((cat) => ({ ...cat, uid: user.uid }))
+        );
         const seededCats = await localDB.get('categories', user.uid, context);
         setCategories(seededCats);
       } else {
         setCategories(cats);
       }
-
-      const crds = await localDB.get('cards', user.uid, context);
-      setCards(crds);
-
-      const savedClients = localStorage.getItem('janflow_clients_list');
-      setClients(savedClients ? JSON.parse(savedClients) : []);
     };
 
     loadData();
@@ -360,7 +362,7 @@ function TransactionsContent() {
         recurrent: data.recurrent || false,
         uid: user.uid,
         context,
-        firstInstallmentDate: data.firstInstallmentDate ? new Date(data.firstInstallmentDate + 'T12:00:00Z').toISOString() : null,
+        firstInstallmentDate: toDbDate(data.firstInstallmentDate),
       };
 
       // Ensure we don't overwrite createdAt when editing
@@ -372,11 +374,11 @@ function TransactionsContent() {
       }
 
       if (editingTransaction) {
-        await localDB.save('transactions', { 
-          ...basePayload, 
+        await localDB.save('transactions', {
+          ...basePayload,
           id: editingTransaction.id,
-          date: new Date(data.date + 'T12:00:00Z').toISOString(),
-          renewalDate: data.renewalDate ? new Date(data.renewalDate + 'T12:00:00Z').toISOString() : null,
+          date: toDbDate(data.date),
+          renewalDate: toDbDate(data.renewalDate),
         });
       } else if (hasInstallments) {
         // Handle installments
@@ -384,8 +386,8 @@ function TransactionsContent() {
         const rawDate = (data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate
           ? data.firstInstallmentDate
           : data.date;
-        
-        const baseDate = new Date(rawDate + 'T12:00:00Z');
+
+        const baseDate = new Date(String(rawDate).slice(0, 10) + 'T12:00:00Z');
         
         const startDate = baseDate;
         const groupId = Math.random().toString(36).substr(2, 9);
@@ -409,8 +411,8 @@ function TransactionsContent() {
       } else {
         await localDB.save('transactions', {
           ...basePayload,
-          date: new Date(data.date + 'T12:00:00Z').toISOString(),
-          renewalDate: data.renewalDate ? new Date(data.renewalDate + 'T12:00:00Z').toISOString() : null,
+          date: toDbDate(data.date),
+          renewalDate: toDbDate(data.renewalDate),
         });
       }
 
@@ -472,7 +474,7 @@ function TransactionsContent() {
     const getDateString = (dateVal: any) => {
       if (!dateVal) return '';
       if (typeof dateVal === 'string' && dateVal.includes('T')) return dateVal.split('T')[0];
-      const d = new Date(dateVal?.seconds ? dateVal.seconds * 1000 : dateVal);
+      const d = parseLocalDate(dateVal);
       // Fallback format if it's not a standard ISO string
       return format(d, 'yyyy-MM-dd');
     };
@@ -481,6 +483,7 @@ function TransactionsContent() {
       ...transaction,
       date: getDateString(transaction.date),
       renewalDate: transaction.renewalDate ? getDateString(transaction.renewalDate) : undefined,
+      firstInstallmentDate: transaction.firstInstallmentDate ? getDateString(transaction.firstInstallmentDate) : undefined,
       isShared: !!transaction.sharedWith,
     });
     setIsModalOpen(true);
@@ -501,7 +504,7 @@ function TransactionsContent() {
     
     const headers = ['Data', 'Entidade', 'Descrição', 'Categoria', 'Status', 'Valor', 'Método'];
     const rows = filteredTransactions.map(t => [
-      format(new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date), 'dd/MM/yyyy'),
+      format(parseLocalDate(t.date), 'dd/MM/yyyy'),
       t.entityName,
       t.description || '',
       t.category,
@@ -744,7 +747,7 @@ function TransactionsContent() {
                   paginatedTransactions.map((t) => (
                     <tr key={t.id} className="hover:bg-surface-container-low/50 transition-colors group">
                       <td className="px-6 py-5">
-                        <p className="text-sm font-bold text-on-surface">{format(new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date), 'dd/MM/yyyy')}</p>
+                        <p className="text-sm font-bold text-on-surface">{format(parseLocalDate(t.date), 'dd/MM/yyyy')}</p>
                         {t.recurrent && <span className="text-[9px] font-black text-primary uppercase tracking-tighter">Recorrente</span>}
                       </td>
                       <td className="px-6 py-5">
@@ -1015,7 +1018,7 @@ function TransactionsContent() {
                 {isPreviousMonthSearchOpen && (
                   <div className="bg-surface-container-high p-4 rounded-2xl space-y-3 border border-outline-variant/20">
                     <div className="flex items-center justify-between">
-                      <h4 className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Lançamentos de {format(addMonths(new Date(), -1), 'MMMM', { locale: ptBR })}</h4>
+                      <h4 className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Lançamentos de {format(addMonths(selectedMonth, -1), 'MMMM', { locale: ptBR })}</h4>
                       <button onClick={() => setIsPreviousMonthSearchOpen(false)} className="text-on-surface-variant hover:text-on-surface">
                         <X size={14} />
                       </button>
@@ -1145,6 +1148,22 @@ function TransactionsContent() {
                     </select>
                   </div>
 
+                  {paymentMethod === 'cartao_debito' && (
+                    <div className="space-y-2">
+                      <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Cartão</label>
+                      <select
+                        {...register('cardId')}
+                        className="w-full px-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20"
+                      >
+                        <option value="">Selecione o cartão...</option>
+                        {cards.map(c => (
+                          <option key={c.id} value={c.id}>{c.name}{c.bank ? ` (${c.bank})` : ''}</option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-on-surface-variant font-medium ml-1">Pagamento à vista no débito — sem parcelamento.</p>
+                    </div>
+                  )}
+
                   {paymentMethod === 'financiamento' && (
                     <div className="flex items-center gap-3 p-4 bg-surface-container-high rounded-2xl md:col-span-2">
                       <input
@@ -1178,7 +1197,6 @@ function TransactionsContent() {
                         <input
                           type="number"
                           min="1"
-                          max="48"
                           {...register('installments', { valueAsNumber: true })}
                           className="w-full px-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20"
                         />

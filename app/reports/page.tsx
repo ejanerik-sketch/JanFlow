@@ -34,9 +34,9 @@ import {
 import { localDB } from '@/lib/localDB';
 import { format, startOfMonth, endOfMonth, subMonths, getYear, setYear, setMonth, addMonths, startOfYear, endOfYear, subYears, isSameMonth, isSameYear, parseISO, isWithinInterval } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { cn } from '@/lib/utils';
+import { cn, parseLocalDate } from '@/lib/utils';
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
+import html2canvas from 'html2canvas-pro';
 import * as XLSX from 'xlsx';
 import { 
   BarChart, 
@@ -81,8 +81,10 @@ export default function ReportsPage() {
   useEffect(() => {
     if (!user) return;
     const loadCatsCards = async () => {
-      const cats = await localDB.get('categories', user.uid, context);
-      const crdsRaw = await localDB.get('cards', user.uid);
+      const [cats, crdsRaw] = await Promise.all([
+        localDB.get('categories', user.uid, context),
+        localDB.get('cards', user.uid),
+      ]);
       const crds = crdsRaw.filter((c: any) => c.context === context);
       setCategories(cats);
       setCards(crds);
@@ -107,11 +109,11 @@ export default function ReportsPage() {
       setAllTransactions(allTrans);
       
       const filtered = allTrans.filter((t: any) => {
-        const tDate = new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date);
+        const tDate = parseLocalDate(t.date);
         return tDate >= start && tDate <= end;
       }).sort((a: any, b: any) => {
-        const dateA = new Date(a.date?.seconds ? a.date.seconds * 1000 : a.date).getTime();
-        const dateB = new Date(b.date?.seconds ? b.date.seconds * 1000 : b.date).getTime();
+        const dateA = parseLocalDate(a.date).getTime();
+        const dateB = parseLocalDate(b.date).getTime();
         return dateA - dateB;
       });
 
@@ -128,13 +130,13 @@ export default function ReportsPage() {
         const prevYearStart = startOfYear(subYears(selectedMonth, 1));
         const prevYearEnd = endOfYear(subYears(selectedMonth, 1));
         const prevYearTrans = allTrans.filter((t: any) => {
-          const tDate = new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date);
+          const tDate = parseLocalDate(t.date);
           return tDate >= prevYearStart && tDate <= prevYearEnd;
         });
         
         // Group by month for comparison
         const currentYearByMonth = Array.from({ length: 12 }, (_, i) => {
-          const monthTrans = filtered.filter((t: any) => new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date).getMonth() === i);
+          const monthTrans = filtered.filter((t: any) => parseLocalDate(t.date).getMonth() === i);
           return {
             month: format(new Date(2000, i, 1), 'MMM', { locale: ptBR }),
             current: monthTrans.reduce((acc: number, t: any) => t.type === 'receita' ? acc + t.value : acc - t.value, 0),
@@ -143,7 +145,7 @@ export default function ReportsPage() {
         });
 
         const prevYearByMonth = Array.from({ length: 12 }, (_, i) => {
-          const monthTrans = prevYearTrans.filter((t: any) => new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date).getMonth() === i);
+          const monthTrans = prevYearTrans.filter((t: any) => parseLocalDate(t.date).getMonth() === i);
           return monthTrans.reduce((acc: number, t: any) => t.type === 'receita' ? acc + t.value : acc - t.value, 0);
         });
 
@@ -163,7 +165,7 @@ export default function ReportsPage() {
     
     return Array.from({ length: 12 }, (_, i) => {
       const monthTrans = allTransactions.filter((t: any) => {
-        const tDate = new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date);
+        const tDate = parseLocalDate(t.date);
         return tDate.getFullYear() === getYear(selectedMonth) && tDate.getMonth() === i;
       });
       
@@ -188,7 +190,7 @@ export default function ReportsPage() {
     
     return Array.from({ length: 12 }, (_, i) => {
       const monthTrans = allTransactions.filter((t: any) => {
-        const tDate = new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date);
+        const tDate = parseLocalDate(t.date);
         return tDate.getFullYear() === getYear(selectedMonth) && tDate.getMonth() === i;
       });
       
@@ -277,7 +279,7 @@ export default function ReportsPage() {
     .reduce((acc: number, t: any) => acc + t.value, 0);
 
   const dailyData = transactions.reduce((acc: any, t) => {
-    const tDate = new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date);
+    const tDate = parseLocalDate(t.date);
     const day = viewMode === 'mensal' ? format(tDate, 'dd/MM') : format(tDate, 'MMM', { locale: ptBR });
     const existing = acc.find((item: any) => item.day === day);
     if (existing) {
@@ -368,7 +370,7 @@ export default function ReportsPage() {
 
   const handleExportCSV = () => {
     const data = transactions.map(t => ({
-      Data: format(new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date), 'dd/MM/yyyy'),
+      Data: format(parseLocalDate(t.date), 'dd/MM/yyyy'),
       Tipo: t.type === 'receita' ? 'Receita' : 'Despesa',
       Entidade: t.entityName,
       Descrição: t.description || '',
@@ -394,11 +396,13 @@ export default function ReportsPage() {
     setIsBackingUp(true);
     try {
       // Get all environments data (we omit context to get everything, localDB.get supports undefined context)
-      const trans = await localDB.get('transactions', user.uid);
-      const cats = await localDB.get('categories', user.uid);
-      const crds = await localDB.get('cards', user.uid);
-      const bdgts = await localDB.get('budgets', user.uid);
-      const clnts = await localDB.get('clients', user.uid);
+      const [trans, cats, crds, bdgts, clnts] = await Promise.all([
+        localDB.get('transactions', user.uid),
+        localDB.get('categories', user.uid),
+        localDB.get('cards', user.uid),
+        localDB.get('budgets', user.uid),
+        localDB.get('clients', user.uid),
+      ]);
       
       const backupData = {
         version: "1.0",
@@ -1055,7 +1059,7 @@ export default function ReportsPage() {
                       <td className="py-4 text-sm font-bold text-on-surface-variant">{t.installments}x</td>
                       <td className="py-4 text-sm font-black text-primary">{formatCurrency(t.value / t.installments)}</td>
                       <td className="py-4 text-sm font-bold text-on-surface-variant">
-                        {format(new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date), 'dd/MM/yyyy')}
+                        {format(parseLocalDate(t.date), 'dd/MM/yyyy')}
                       </td>
                     </tr>
                   ))}

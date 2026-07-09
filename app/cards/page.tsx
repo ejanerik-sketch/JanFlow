@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { localDB } from '@/lib/localDB';
-import { cn } from '@/lib/utils';
+import { cn, parseLocalDate } from '@/lib/utils';
 import { format, startOfMonth, endOfMonth, isWithinInterval, getMonth, getYear, setMonth, setYear, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
@@ -92,8 +92,8 @@ export default function CardsPage() {
       const cardTransactions = allTransactions
         .filter((t: any) => t.cardId === selectedCardId)
         .sort((a: any, b: any) => {
-          const dateA = new Date(a.date?.seconds ? a.date.seconds * 1000 : a.date).getTime();
-          const dateB = new Date(b.date?.seconds ? b.date.seconds * 1000 : b.date).getTime();
+          const dateA = parseLocalDate(a.date).getTime();
+          const dateB = parseLocalDate(b.date).getTime();
           return dateB - dateA;
         });
       setTransactions(cardTransactions);
@@ -166,7 +166,7 @@ export default function CardsPage() {
     const closingDay = selectedCard?.closingDay || 10;
     
     const filtered = transactions.filter(t => {
-      const tDate = new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date);
+      const tDate = parseLocalDate(t.date);
       const end = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), closingDay);
       const start = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1, closingDay + 1);
       return isWithinInterval(tDate, { start, end });
@@ -199,7 +199,7 @@ export default function CardsPage() {
   const cycleStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1, closingDay + 1);
 
   const filteredTransactions = transactions.filter(t => {
-    const tDate = new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date);
+    const tDate = parseLocalDate(t.date);
     const matchesMonth = isWithinInterval(tDate, { start: cycleStart, end: cycleEnd });
     if (!matchesMonth) return false;
 
@@ -441,10 +441,10 @@ export default function CardsPage() {
                               <div>
                                 <p className="font-bold text-on-surface">{t.entityName}</p>
                                 <div className="flex items-center gap-2">
-                                  <p className="text-xs text-on-surface-variant font-medium">{t.category} • {format(new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date), 'dd MMM', { locale: ptBR })}</p>
-                                  {t.installmentNumber && (
+                                  <p className="text-xs text-on-surface-variant font-medium">{t.category} • {format(parseLocalDate(t.date), 'dd MMM', { locale: ptBR })}</p>
+                                  {t.currentInstallment && t.installments > 1 && (
                                     <span className="text-[10px] font-black bg-surface-container-highest px-2 py-0.5 rounded-full text-on-surface-variant">
-                                      {t.installmentNumber}/{t.totalInstallments}
+                                      Parcela {t.currentInstallment}/{t.installments}
                                     </span>
                                   )}
                                 </div>

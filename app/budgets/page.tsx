@@ -21,7 +21,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { localDB } from '@/lib/localDB';
 import { format, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { cn } from '@/lib/utils';
+import { cn, parseLocalDate } from '@/lib/utils';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -66,10 +66,12 @@ export default function BudgetsPage() {
     if (!user) return;
 
     const loadData = async () => {
-      const b = await localDB.get('budgets', user.uid, context);
-      const t = await localDB.get('transactions', user.uid, context);
-      const c = await localDB.get('categories', user.uid, context);
-      
+      const [b, t, c] = await Promise.all([
+        localDB.get('budgets', user.uid, context),
+        localDB.get('transactions', user.uid, context),
+        localDB.get('categories', user.uid, context),
+      ]);
+
       setBudgets(b);
       setTransactions(t);
       
@@ -213,7 +215,7 @@ export default function BudgetsPage() {
           {budgets.map((budget) => {
             const spent = transactions
               .filter(t => {
-                const tDate = new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date);
+                const tDate = parseLocalDate(t.date);
                 return t.category === budget.category && 
                        t.type === 'despesa' && 
                        isWithinInterval(tDate, { start, end });

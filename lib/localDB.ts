@@ -24,23 +24,62 @@ const convertKeysToCamelCase = (obj: any) => {
 
 // Supabase Database Utility
 export const localDB = {
-  get: async (collection: string, uid: string, context?: string) => {
+  get: async (
+    collection: string,
+    uid: string,
+    context?: string,
+    options?: { from?: string; to?: string; dateColumn?: string }
+  ) => {
     let query = supabase.from(collection).select('*').eq('user_id', uid);
-    
+
     if (context) {
       query = query.eq('context', context);
     }
-    
+
+    // Filtro de intervalo de datas direto no banco (evita puxar tudo e filtrar
+    // no navegador). Usado, por ex., para carregar só o mês selecionado.
+    if (options?.from && options?.to) {
+      const col = options.dateColumn || 'date';
+      query = query.gte(col, options.from).lte(col, options.to);
+    }
+
     const { data, error } = await query;
-    
+
     if (error) {
       console.error(`Error fetching ${collection}:`, error);
       return [];
     }
-    
+
     return (data || []).map(convertKeysToCamelCase);
   },
-  
+
+  // Insere vários registros de uma vez (1 round-trip). Usado no seed de
+  // categorias padrão, que antes fazia ~40 inserts sequenciais e travava o
+  // primeiro carregamento.
+  saveMany: async (collection: string, items: any[]) => {
+    if (!items || items.length === 0) return [];
+
+    const payload = items.map((item) => {
+      const p = { ...item };
+      if (p.uid) {
+        p.user_id = p.uid;
+        delete p.uid;
+      }
+      const dbItem = convertKeysToSnakeCase(p);
+      const { id, ...rest } = dbItem;
+      return rest;
+    });
+
+    const { data, error } = await supabase.from(collection).insert(payload).select();
+
+    if (error) {
+      console.error(`Error bulk inserting ${collection}:`, error);
+      throw error;
+    }
+
+    return (data || []).map(convertKeysToCamelCase);
+  },
+
   save: async (collection: string, item: any) => {
     // Ensure user_id is set (mapping from uid)
     const payload = { ...item };

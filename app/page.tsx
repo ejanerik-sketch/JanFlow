@@ -40,7 +40,7 @@ import {
 import { localDB } from '@/lib/localDB';
 import { format, startOfMonth, endOfMonth, subMonths, isWithinInterval, getYear, setYear, setMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { cn } from '@/lib/utils';
+import { cn, parseLocalDate } from '@/lib/utils';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -87,12 +87,14 @@ export default function Dashboard() {
       const start = startOfMonth(selectedMonth);
       const end = endOfMonth(selectedMonth);
 
-      // Fetching from Supabase via localDB wrapper
-      const allTransactions = await localDB.get('transactions', user.uid, context);
-      const allBudgets = await localDB.get('budgets', user.uid, context);
-      const allCardsRaw = await localDB.get('cards', user.uid);
+      // Fetching from Supabase via localDB wrapper (em paralelo)
+      const [allTransactions, allBudgets, allCardsRaw, allCategories] = await Promise.all([
+        localDB.get('transactions', user.uid, context),
+        localDB.get('budgets', user.uid, context),
+        localDB.get('cards', user.uid),
+        localDB.get('categories', user.uid, context),
+      ]);
       const allCards = allCardsRaw.filter((c: any) => c.context === context);
-      const allCategories = await localDB.get('categories', user.uid, context);
       const savedGoal = localStorage.getItem(`janflow_goal_${user.uid}_${context}`);
       if (savedGoal) {
         setNewGoal(parseFloat(savedGoal));
@@ -103,7 +105,7 @@ export default function Dashboard() {
       setCategories(allCategories);
       
       const filtered = allTransactions.filter((t: any) => {
-        const tDate = new Date(t.date?.seconds ? t.date.seconds * 1000 : t.date);
+        const tDate = parseLocalDate(t.date);
         const inMonth = isWithinInterval(tDate, { start, end });
         if (!inMonth) return false;
 
@@ -121,8 +123,8 @@ export default function Dashboard() {
 
         return true;
       }).sort((a: any, b: any) => {
-        const dateA = new Date(a.date?.seconds ? a.date.seconds * 1000 : a.date).getTime();
-        const dateB = new Date(b.date?.seconds ? b.date.seconds * 1000 : b.date).getTime();
+        const dateA = parseLocalDate(a.date).getTime();
+        const dateB = parseLocalDate(b.date).getTime();
         return dateB - dateA;
       });
 
