@@ -58,10 +58,10 @@ const SidebarContent = ({
   const themeActive = isBusiness ? 'bg-[#1d8490] text-white' : 'bg-[#ff6330] text-white';
 
   const navItems = [
-    { name: 'Dashboard', icon: LayoutDashboard, href: '/', analistaHidden: true },
+    { name: 'Dashboard', icon: LayoutDashboard, href: '/', analistaHidden: false },
     { name: 'Lançamentos', icon: ReceiptText, href: '/transactions', analistaHidden: true },
     { name: 'Cartões', icon: CreditCard, href: '/cards', analistaHidden: true },
-    { name: 'Relatórios', icon: BarChart3, href: '/reports' },
+    { name: 'Relatórios', icon: BarChart3, href: '/reports', analistaHidden: true },
     { name: 'Orçamentos', icon: Target, href: '/budgets', analistaHidden: true },
     { name: 'Categorias', icon: Tags, href: '/categories', adminOnly: true },
     { name: 'Clientes', icon: Building2, href: '/clients', adminOrFinanceiro: true, businessOnly: true },
@@ -144,8 +144,8 @@ export default function Layout({ children }: LayoutProps) {
   useEffect(() => {
     if (isAuthReady && !user) {
       router.push('/login');
-    } else if (isAuthReady && user && isAnalista && pathname !== '/reports' && pathname !== '/settings') {
-      router.push('/reports');
+    } else if (isAuthReady && user && isAnalista && pathname !== '/' && pathname !== '/settings') {
+      router.push('/');
     }
   }, [user, isAuthReady, isAnalista, pathname, router]);
 
@@ -244,7 +244,8 @@ export default function Layout({ children }: LayoutProps) {
 
             <Reminders />
             <button 
-              onClick={() => {
+              onClick={async () => {
+                await supabase.auth.signOut();
                 localStorage.removeItem('janflow_user');
                 window.location.href = '/login';
               }}

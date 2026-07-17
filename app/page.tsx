@@ -167,7 +167,7 @@ export default function Dashboard() {
       const catMap: Record<string, number> = {};
 
       filtered.forEach((t: any) => {
-        const portion = t.isShared && t.sharedSplit ? (
+        const portion = (context === 'pessoal' && t.isShared && t.sharedSplit) ? (
           (() => {
             try {
               const split = JSON.parse(t.sharedSplit);

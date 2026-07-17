@@ -541,12 +541,14 @@ export default function UsersPage() {
                         <button
                           key={role}
                           type="button"
+                          disabled={!isAdmin}
                           onClick={() => setFormData({...formData, role})}
                           className={cn(
                             "py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border-2",
                             formData.role === role 
                               ? "bg-primary/10 border-primary text-primary shadow-sm" 
-                              : "bg-surface-container-high border-transparent text-on-surface-variant hover:bg-surface-container-highest"
+                              : "bg-surface-container-high border-transparent text-on-surface-variant hover:bg-surface-container-highest",
+                            !isAdmin && "opacity-50 cursor-not-allowed"
                           )}
                         >
                           {role}
