@@ -6,9 +6,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { localDB } from '@/lib/localDB';
 import { supabase } from '@/lib/supabase';
 import { useAppContext } from '@/context/AppContext';
-import { format, differenceInDays, parseISO, isAfter, isBefore, addDays } from 'date-fns';
+import { format, differenceInDays, isAfter, isBefore, addDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { cn } from '@/lib/utils';
+import { cn, parseLocalDate } from '@/lib/utils';
 import Link from 'next/link';
 
 export default function Reminders() {
@@ -42,9 +42,9 @@ export default function Reminders() {
       today.setHours(0, 0, 0, 0);
       
       const upcoming = transactions.filter((t: any) => {
-        if (t.status === 'pago' || t.status === 'recebido') return false;
+        if (t.status === 'pago' || t.status === 'recebido' || t.reminderDismissed) return false;
         
-        const txDate = parseISO(t.date);
+        const txDate = parseLocalDate(t.date);
         txDate.setHours(0, 0, 0, 0);
         
         const daysDiff = differenceInDays(txDate, today);
@@ -115,7 +115,7 @@ export default function Reminders() {
         body: JSON.stringify({
           transactionName: transaction.entityName,
           value: transaction.value,
-          dueDate: format(parseISO(transaction.date), 'dd/MM/yyyy'),
+          dueDate: format(parseLocalDate(transaction.date), 'dd/MM/yyyy'),
           type: transaction.type,
           customSubject,
           customHtml
@@ -138,7 +138,7 @@ export default function Reminders() {
   };
 
   const getStatusColor = (date: string) => {
-    const txDate = parseISO(date);
+    const txDate = parseLocalDate(date);
     txDate.setHours(0, 0, 0, 0);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -151,7 +151,7 @@ export default function Reminders() {
   };
 
   const getStatusText = (date: string) => {
-    const txDate = parseISO(date);
+    const txDate = parseLocalDate(date);
     txDate.setHours(0, 0, 0, 0);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -177,9 +177,14 @@ export default function Reminders() {
         onClick={() => setIsOpen(!isOpen)}
         className="relative p-2 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-full transition-colors"
       >
-        <Bell size={20} />
+        <motion.div
+          animate={reminders.length > 0 ? { rotate: [0, -15, 15, -15, 15, 0] } : {}}
+          transition={{ repeat: Infinity, duration: 1, repeatDelay: 2 }}
+        >
+          <Bell size={20} className={reminders.length > 0 ? "text-warning animate-pulse" : ""} />
+        </motion.div>
         {reminders.length > 0 && (
-          <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-error rounded-full border-2 border-surface animate-pulse"></span>
+          <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-error rounded-full border-2 border-surface animate-ping"></span>
         )}
       </button>
 
@@ -240,7 +245,7 @@ export default function Reminders() {
                           "text-[10px] font-bold px-2 py-1 rounded-md border flex items-center gap-1",
                           getStatusColor(reminder.date)
                         )}>
-                          {differenceInDays(parseISO(reminder.date), new Date()) < 0 ? (
+                          {differenceInDays(parseLocalDate(reminder.date), new Date()) < 0 ? (
                             <AlertCircle size={12} />
                           ) : (
                             <Clock size={12} />
@@ -270,13 +275,20 @@ export default function Reminders() {
                               <Mail size={14} />
                             )}
                           </button>
-                          <button
-                            onClick={(e) => markAsPaid(e, reminder)}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity text-xs font-bold flex items-center gap-1 text-success hover:bg-success/10 px-2 py-1 rounded-md"
-                          >
-                            <Check size={14} />
-                            {reminder.type === 'receita' ? 'Recebido' : 'Pago'}
-                          </button>
+                            <div className="flex flex-col gap-1 sm:flex-row sm:items-center">
+                              <button
+                                onClick={(e) => markAsPaid(e, reminder)}
+                                className={cn(
+                                  "p-2 sm:p-2 sm:rounded-full transition-colors flex items-center justify-center border sm:border-none",
+                                  reminder.type === 'receita' 
+                                    ? "hover:bg-success/10 text-on-surface-variant hover:text-success border-outline-variant/20" 
+                                    : "hover:bg-error/10 text-on-surface-variant hover:text-error border-outline-variant/20"
+                                )}
+                                title={reminder.type === 'receita' ? "Marcar como Recebido" : "Marcar como Pago"}
+                              >
+                                <Check size={16} />
+                              </button>
+                            </div>
                         </div>
                       </div>
                     </div>

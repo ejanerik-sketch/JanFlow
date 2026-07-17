@@ -140,7 +140,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const isAdmin = userData?.role === 'admin' || user?.email === 'ejanerik@gmail.com';
+  const isAdmin = userData?.role === 'admin' || user?.email === 'ejanerik@gmail.com' || user?.email === 'ramiro.developper@gmail.com';
   const isFinanceiro = userData?.role === 'financeiro' || isAdmin;
   const isAnalista = !isAdmin && !isFinanceiro;
 

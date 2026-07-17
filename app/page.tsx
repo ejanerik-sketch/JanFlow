@@ -27,7 +27,9 @@ import {
   X,
   Edit2,
   PieChart as PieChartIcon,
-  Activity
+  Activity,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -73,6 +75,21 @@ export default function Dashboard() {
     type: 'todos',
     category: 'todos'
   });
+  const [isLoadingData, setIsLoadingData] = useState(true);
+  const [valuesHidden, setValuesHidden] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('janflow_values_hidden') === 'true';
+    }
+    return false;
+  });
+
+  const toggleValuesHidden = () => {
+    setValuesHidden(prev => {
+      const next = !prev;
+      localStorage.setItem('janflow_values_hidden', String(next));
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (isAuthReady && !user) {
@@ -83,19 +100,13 @@ export default function Dashboard() {
   useEffect(() => {
     if (!user) return;
 
-    const loadData = async () => {
-      const start = startOfMonth(selectedMonth);
-      const end = endOfMonth(selectedMonth);
-
-      // Fetching from Supabase via localDB wrapper (em paralelo)
-      const [allTransactions, allBudgets, allCardsRaw, allCategories] = await Promise.all([
-        localDB.get('transactions', user.uid, context),
-        localDB.get('budgets', user.uid, context),
-        localDB.get('cards', user.uid),
-        localDB.get('categories', user.uid, context),
-      ]);
+    const start = startOfMonth(selectedMonth);
+    const end = endOfMonth(selectedMonth);
+    const from = format(start, 'yyyy-MM-dd');
+    const to = format(end, 'yyyy-MM-dd');
+    const processData = (allTransactions: any[], allBudgets: any[], allCardsRaw: any[], allCategories: any[]) => {
       const allCards = allCardsRaw.filter((c: any) => c.context === context);
-      const savedGoal = localStorage.getItem(`janflow_goal_${user.uid}_${context}`);
+      const savedGoal = localStorage.getItem(`janflow_goal_${user?.uid}_${context}`);
       if (savedGoal) {
         setNewGoal(parseFloat(savedGoal));
       }
@@ -104,6 +115,9 @@ export default function Dashboard() {
       setCards(allCards);
       setCategories(allCategories);
       
+      const start = startOfMonth(selectedMonth);
+      const end = endOfMonth(selectedMonth);
+
       const filtered = allTransactions.filter((t: any) => {
         const tDate = parseLocalDate(t.date);
         const inMonth = isWithinInterval(tDate, { start, end });
@@ -153,33 +167,46 @@ export default function Dashboard() {
       const catMap: Record<string, number> = {};
 
       filtered.forEach((t: any) => {
+        const portion = t.isShared && t.sharedSplit ? (
+          (() => {
+            try {
+              const split = JSON.parse(t.sharedSplit);
+              const othersTotal = Object.values(split).reduce((sum: number, v: any) => sum + Number(v), 0);
+              const p = Number(t.value) - othersTotal;
+              return p > 0 ? Math.round(p * 100) / 100 : 0;
+            } catch { return t.value; }
+          })()
+        ) : t.value;
+
+        if (portion === 0) return; // Ignore fully third-party family purchases in dashboard totals
+
         if (t.type === 'receita') {
-          rev += t.value;
-          if (t.status === 'recebido' || t.status === 'pago') rec += t.value;
-          else if (t.status === 'a_receber' || t.status === 'pendente') pend += t.value;
-          else if (t.status === 'atrasado') over += t.value;
+          rev += portion;
+          if (t.status === 'recebido' || t.status === 'pago') rec += portion;
+          else if (t.status === 'a_receber' || t.status === 'pendente') pend += portion;
+          else if (t.status === 'atrasado') over += portion;
 
           if ((t.category || '').toLowerCase().includes('contrato') || (t.description || '').toLowerCase().includes('novo contrato')) {
             newC++;
           }
         } else {
-          exp += t.value;
-          if (t.status === 'atrasado') over += t.value;
-          else if (t.status === 'a_pagar' || t.status === 'pendente') pend += t.value;
+          exp += portion;
+          if (t.status === 'atrasado') over += portion;
+          else if (t.status === 'a_pagar' || t.status === 'pendente') pend += portion;
           
           if ((t.description || '').toLowerCase().includes('cancelamento') || (t.description || '').toLowerCase().includes('cancelado')) {
             cancC++;
           }
 
           // Category distribution for expenses
-          catMap[t.category] = (catMap[t.category] || 0) + t.value;
+          catMap[t.category] = (catMap[t.category] || 0) + portion;
         }
 
         if (t.paymentMethod === 'cartao_credito') {
-          card += t.value;
+          card += portion;
           const cardObj = allCards.find((c: any) => c.id === t.cardId);
           if (cardObj && cardMap[cardObj.id]) {
-            cardMap[cardObj.id].value += t.value;
+            cardMap[cardObj.id].value += portion;
           }
         }
       });
@@ -196,8 +223,7 @@ export default function Dashboard() {
             color: catObj?.color || '#94a3b8'
           };
         })
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 5);
+        .sort((a: any, b: any) => b.value - a.value);
 
       setMetrics(prev => ({
         ...prev,
@@ -217,6 +243,43 @@ export default function Dashboard() {
       }));
     };
 
+    const loadData = async () => {
+      const start = startOfMonth(selectedMonth);
+      const end = endOfMonth(selectedMonth);
+      const from = format(start, 'yyyy-MM-dd');
+      const to = format(end, 'yyyy-MM-dd');
+
+      // 1. Carrega do Cache Instantaneamente
+      const cachedTransactions = localDB.getCached('transactions', user.uid, context, { from, to });
+      const cachedBudgets = localDB.getCached('budgets', user.uid, context);
+      const cachedCardsRaw = localDB.getCached('cards', user.uid);
+      const cachedCategories = localDB.getCached('categories', user.uid, context);
+      
+      const hasCache = cachedTransactions.length > 0 || cachedCategories.length > 0;
+      if (hasCache) {
+        processData(cachedTransactions, cachedBudgets, cachedCardsRaw, cachedCategories);
+        setIsLoadingData(false);
+      } else {
+        setIsLoadingData(true);
+      }
+
+      // 2. Busca Atualizada do Servidor (Batch)
+      try {
+        const [allTransactions, allBudgets, allCardsRaw, allCategories] = await localDB.getBatch([
+          { collection: 'transactions', context, options: { from, to } },
+          { collection: 'budgets', context },
+          { collection: 'cards' },
+          { collection: 'categories', context }
+        ], user.uid);
+        
+        processData(allTransactions, allBudgets, allCardsRaw, allCategories);
+      } catch (error) {
+        console.error('Error fetching dashboard database actions:', error);
+      } finally {
+        setIsLoadingData(false);
+      }
+    };
+
     loadData();
   }, [user, context, selectedMonth, filters]);
 
@@ -230,12 +293,23 @@ export default function Dashboard() {
 
   if (!user) return null;
 
+  if (isLoadingData) {
+    return (
+      <Layout>
+        <div className="min-h-[50vh] flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+        </div>
+      </Layout>
+    );
+  }
+
   const isBusiness = context === 'empresa';
   const themeColor = isBusiness ? 'text-[#1d8490]' : 'text-[#ff6330]';
   const themeBg = isBusiness ? 'bg-[#1d8490]' : 'bg-[#ff6330]';
   const themeBorder = isBusiness ? 'border-[#1d8490]' : 'border-[#ff6330]';
 
   const formatCurrency = (val: number) => {
+    if (valuesHidden) return 'R$ •••••';
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
   };
 
@@ -269,8 +343,20 @@ export default function Dashboard() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3 bg-surface-container-high p-1.5 rounded-2xl shadow-inner">
-            <div className="flex items-center gap-2 px-2">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleValuesHidden}
+              className={cn(
+                "p-2.5 rounded-xl transition-all duration-300 border",
+                valuesHidden
+                  ? "bg-surface-container-high border-outline-variant/30 text-on-surface-variant"
+                  : "border-transparent text-on-surface-variant hover:bg-surface-container-high"
+              )}
+              title={valuesHidden ? 'Mostrar valores' : 'Ocultar valores'}
+            >
+              {valuesHidden ? <EyeOff size={20} /> : <Eye size={20} />}
+            </button>
+            <div className="flex items-center gap-2 bg-surface-container-high p-1.5 rounded-2xl shadow-inner px-3">
               <select 
                 value={getYear(selectedMonth)}
                 onChange={(e) => setSelectedMonth(setYear(selectedMonth, parseInt(e.target.value)))}
@@ -389,8 +475,8 @@ export default function Dashboard() {
                     </RePieChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="w-full md:w-1/2 space-y-3 mt-6 md:mt-0 px-4">
-                  {metrics.categoryDistribution.slice(0, 5).map((entry: any, index: number) => (
+                <div className="w-full md:w-1/2 space-y-3 mt-6 md:mt-0 px-4 max-h-[300px] overflow-y-auto">
+                  {metrics.categoryDistribution.map((entry: any, index: number) => (
                     <div key={index} className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.color }}></div>

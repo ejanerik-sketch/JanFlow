@@ -29,7 +29,10 @@ import {
   Database,
   DownloadCloud,
   UploadCloud,
-  RefreshCw
+  RefreshCw,
+  Printer,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { localDB } from '@/lib/localDB';
 import { format, startOfMonth, endOfMonth, subMonths, getYear, setYear, setMonth, addMonths, startOfYear, endOfYear, subYears, isSameMonth, isSameYear, parseISO, isWithinInterval } from 'date-fns';
@@ -70,6 +73,20 @@ export default function ReportsPage() {
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [lastBackup, setLastBackup] = useState<string | null>(null);
+  const [valuesHidden, setValuesHidden] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('janflow_values_hidden') === 'true';
+    }
+    return false;
+  });
+
+  const toggleValuesHidden = () => {
+    setValuesHidden(prev => {
+      const next = !prev;
+      localStorage.setItem('janflow_values_hidden', String(next));
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -105,7 +122,20 @@ export default function ReportsPage() {
       const start = viewMode === 'mensal' ? startOfMonth(selectedMonth) : startOfYear(selectedMonth);
       const end = viewMode === 'mensal' ? endOfMonth(selectedMonth) : endOfYear(selectedMonth);
 
-      const allTrans = await localDB.get('transactions', user.uid, context);
+      const rawAllTrans = await localDB.get('transactions', user.uid, context);
+      const allTrans = rawAllTrans.map((t: any) => {
+        let userPortion = t.value;
+        if (t.isShared && t.sharedSplit) {
+          try {
+            const split = JSON.parse(t.sharedSplit);
+            const othersTotal = Object.values(split).reduce((sum: number, v: any) => sum + Number(v), 0);
+            const p = Number(t.value) - othersTotal;
+            userPortion = p > 0 ? Math.round(p * 100) / 100 : 0;
+          } catch {}
+        }
+        return { ...t, originalValue: t.value, value: userPortion };
+      }).filter((t: any) => t.value > 0 || t.isShared); // Keep 0-portion if it's shared for the family report
+
       setAllTransactions(allTrans);
       
       const filtered = allTrans.filter((t: any) => {
@@ -216,6 +246,7 @@ export default function ReportsPage() {
   const themeBorder = isBusiness ? 'border-[#1d8490]' : 'border-[#ff6330]';
 
   const formatCurrency = (val: number) => {
+    if (valuesHidden) return 'R$ •••••';
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
   };
 
@@ -251,7 +282,7 @@ export default function ReportsPage() {
   const variableExpenses = transactions.filter((t: any) => t.type === 'despesa' && !t.recurrent).reduce((acc: number, t: any) => acc + t.value, 0);
 
   // Card breakdown
-  const cardMap: Record<string, { id: string, name: string, bank: string, lastDigits: string, spending: number }> = {};
+  const cardMap: Record<string, { id: string, name: string, bank: string, lastDigits: string, spending: number, originalSpending?: number }> = {};
   
   cards.forEach(c => {
     cardMap[c.id] = {
@@ -352,18 +383,42 @@ export default function ReportsPage() {
     return acc;
   }, { count: 0, total: 0, groups: new Set() });
 
-  // Shared Purchases (Pessoal only)
+  // Shared Purchases (Pessoal only) — grouped by groupId to avoid duplicates
   const sharedPurchases = transactions.filter((t: any) => t.context === 'pessoal' && t.isShared && t.sharedWith);
-  const sharedByPerson = sharedPurchases.reduce((acc: any, t: any) => {
+  
+  // Deduplicate: group installments by groupId so the same purchase doesn't appear multiple times
+  const uniqueSharedPurchases: any[] = [];
+  const seenGroupIds = new Set<string>();
+  sharedPurchases.forEach((t: any) => {
+    if (t.groupId && seenGroupIds.has(t.groupId)) return; // Skip duplicate installment groups
+    if (t.groupId) seenGroupIds.add(t.groupId);
+    uniqueSharedPurchases.push(t);
+  });
+  
+  const sharedByPerson = uniqueSharedPurchases.reduce((acc: any, t: any) => {
     const people = t.sharedWith.split(',').map((p: string) => p.trim()).filter(Boolean);
+    let splitData: Record<string, number> = {};
+    try {
+      if (t.sharedSplit) splitData = JSON.parse(t.sharedSplit);
+    } catch {}
+    
+    const totalValue = t.installments > 1 ? t.originalValue * t.installments : t.originalValue;
+    
     people.forEach((person: string) => {
       const normalizedPerson = (person || '').toLowerCase();
       const existingKey = Object.keys(acc).find(k => (k || '').toLowerCase() === normalizedPerson);
       const keyToUse = existingKey || person;
 
       if (!acc[keyToUse]) acc[keyToUse] = { total: 0, items: [] };
-      acc[keyToUse].total += t.value;
-      acc[keyToUse].items.push(t);
+      
+      const personMonthValue = splitData[person] !== undefined ? splitData[person] : t.originalValue;
+      acc[keyToUse].total += personMonthValue;
+      acc[keyToUse].items.push({
+        ...t,
+        personMonthValue,
+        totalPurchaseValue: totalValue,
+        cleanEntityName: (t.entityName || '').replace(/\s*\(\d+\/\d+\)\s*$/, '').trim(),
+      });
     });
     return acc;
   }, {});
@@ -494,7 +549,7 @@ export default function ReportsPage() {
     try {
       // Create a clone to modify for printing
       const canvas = await html2canvas(element, {
-        scale: 2,
+        scale: 1.5, // 1.5 scale is safe for memory limits
         useCORS: true,
         logging: false,
         backgroundColor: '#f8fafc',
@@ -502,6 +557,18 @@ export default function ReportsPage() {
           const noPrint = clonedDoc.querySelectorAll('.no-print');
           noPrint.forEach(el => (el as HTMLElement).style.display = 'none');
           
+          // Replace profile photos and other potentially tainted images with text placeholders to avoid CORS/Taint canvas bugs
+          const images = clonedDoc.querySelectorAll('img');
+          images.forEach(img => {
+            const parent = img.parentElement;
+            if (parent) {
+              const placeholder = clonedDoc.createElement('div');
+              placeholder.className = "w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center font-bold text-xs text-primary no-print";
+              placeholder.innerText = "U";
+              parent.replaceChild(placeholder, img);
+            }
+          });
+
           // Ensure charts are visible
           const charts = clonedDoc.querySelectorAll('.recharts-wrapper');
           charts.forEach(el => {
@@ -565,7 +632,20 @@ export default function ReportsPage() {
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 bg-surface-container-high p-1.5 rounded-2xl shadow-inner">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={toggleValuesHidden}
+              className={cn(
+                "p-2.5 rounded-xl transition-all duration-300 border",
+                valuesHidden
+                  ? "bg-surface-container-high border-outline-variant/30 text-on-surface-variant"
+                  : "border-transparent text-on-surface-variant hover:bg-surface-container-high"
+              )}
+              title={valuesHidden ? 'Mostrar valores' : 'Ocultar valores'}
+            >
+              {valuesHidden ? <EyeOff size={20} /> : <Eye size={20} />}
+            </button>
+            <div className="flex flex-wrap items-center gap-3 bg-surface-container-high p-1.5 rounded-2xl shadow-inner">
             <div className="flex items-center gap-1 bg-surface-container-lowest p-1 rounded-xl shadow-sm">
               <button 
                 onClick={() => setViewMode('mensal')}
@@ -625,6 +705,7 @@ export default function ReportsPage() {
               </button>
             </div>
           </div>
+          </div>
         </div>
 
         {/* Action Bar (Export/Backup) */}
@@ -675,6 +756,13 @@ export default function ReportsPage() {
               title="Exportar Visual PDF em A4"
             >
               <FileText size={16} /> Ver & Salvar PDF
+            </button>
+            <button 
+              onClick={() => window.print()}
+              className="flex items-center gap-2 px-4 py-2 bg-surface-container-low border border-outline-variant/20 text-on-surface rounded-xl text-sm font-bold hover:bg-surface-container-highest active:scale-95 transition-all"
+              title="Imprimir relatório completo usando o navegador"
+            >
+              <Printer size={16} /> Imprimir Relatório
             </button>
             <button 
               onClick={handleExportCSV}
@@ -770,7 +858,7 @@ export default function ReportsPage() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-black text-on-surface">{formatCurrency(card.spending)}</p>
+                    <p className="text-sm font-black text-on-surface text-right">R$ {(card.originalSpending || card.spending).toFixed(2)}</p>
                     <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Gasto no Mês</p>
                   </div>
                 </div>
@@ -1007,8 +1095,8 @@ export default function ReportsPage() {
                     </RePieChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="w-full md:w-1/2 space-y-3 mt-6 md:mt-0 px-4">
-                  {categoryData.slice(0, 5).map((entry: any, index: number) => (
+                <div className="w-full md:w-1/2 space-y-3 mt-6 md:mt-0 px-4 max-h-[300px] overflow-y-auto">
+                  {categoryData.sort((a: any, b: any) => b.value - a.value).map((entry: any, index: number) => (
                     <div key={index} className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.color }}></div>
@@ -1055,9 +1143,9 @@ export default function ReportsPage() {
                     <tr key={idx} className="group hover:bg-surface-container-low transition-colors">
                       <td className="py-4 text-sm font-bold text-on-surface">{t.entityName || t.description}</td>
                       <td className="py-4 text-xs font-bold text-on-surface-variant uppercase">{t.paymentMethod.replace('_', ' ')}</td>
-                      <td className="py-4 text-sm font-black text-on-surface">{formatCurrency(t.value)}</td>
+                      <td className="py-4 text-sm font-black text-on-surface">{formatCurrency(t.value * t.installments)}</td>
                       <td className="py-4 text-sm font-bold text-on-surface-variant">{t.installments}x</td>
-                      <td className="py-4 text-sm font-black text-primary">{formatCurrency(t.value / t.installments)}</td>
+                      <td className="py-4 text-sm font-black text-primary">{formatCurrency(t.value)}</td>
                       <td className="py-4 text-sm font-bold text-on-surface-variant">
                         {format(parseLocalDate(t.date), 'dd/MM/yyyy')}
                       </td>
@@ -1075,38 +1163,81 @@ export default function ReportsPage() {
 
         {/* Compras Compartilhadas (Pessoal Only) */}
         {context === 'pessoal' && Object.keys(sharedByPerson).length > 0 && (
-          <div className="bg-surface-container-lowest p-8 rounded-[32px] border border-outline-variant/20 shadow-sm">
+          <div className="bg-surface-container-lowest p-4 md:p-8 rounded-[32px] border border-outline-variant/20 shadow-sm">
             <div className="flex items-center justify-between mb-8">
               <div>
                 <h3 className="text-xl font-black text-on-surface">Compras Compartilhadas (Família)</h3>
-                <p className="text-sm text-on-surface-variant font-medium">Gastos divididos por pessoa no mês</p>
+                <p className="text-sm text-on-surface-variant font-medium">Detalhamento por pessoa — parcelas do mês</p>
               </div>
               <UserIcon size={24} className="text-on-surface-variant opacity-40" />
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 md:gap-6">
               {Object.entries(sharedByPerson).map(([person, data]: [string, any]) => (
-                <div key={person} className="bg-surface-container-low p-6 rounded-2xl border border-outline-variant/20">
-                  <div className="flex items-center justify-between mb-4">
-                    <h4 className="text-lg font-black text-on-surface">{person}</h4>
-                    <span className="text-sm font-black text-primary">{formatCurrency(data.total)}</span>
-                  </div>
-                  <div className="space-y-3">
-                    {data.items.map((t: any, idx: number) => (
-                      <div key={idx} className="flex flex-col gap-1 pb-3 border-b border-outline-variant/10 last:border-0 last:pb-0">
-                        <div className="flex items-center justify-between">
-                          <Link href={`/transactions?edit=${t.id}`} className="text-xs font-bold text-on-surface hover:text-primary transition-colors">
-                            {t.entityName || t.description}
-                          </Link>
-                          <span className="text-xs font-black text-on-surface-variant">{formatCurrency(t.value)}</span>
-                        </div>
-                        {t.installments > 1 && (
-                          <span className="text-[10px] font-bold text-on-surface-variant uppercase">
-                            Parcela {t.currentInstallment || 1}/{t.installments}
-                          </span>
-                        )}
+                <div key={person} className="bg-surface-container-low rounded-2xl border border-outline-variant/20 overflow-hidden">
+                  <div className="flex items-center justify-between p-3 md:p-4 bg-surface-container-high/50">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                        <span className="text-xs font-black text-primary">{person.charAt(0).toUpperCase()}</span>
                       </div>
-                    ))}
+                      <h4 className="text-base font-black text-on-surface">{person}</h4>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Total do Mês</p>
+                      <p className="text-base font-black text-primary">{formatCurrency(data.total)}</p>
+                    </div>
+                  </div>
+                  
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-primary/5 border-b border-primary/10">
+                          <th className="text-left px-3 md:px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-primary/80">Compra</th>
+                          <th className="text-left px-3 md:px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-primary/80 hidden sm:table-cell">Descrição</th>
+                          <th className="text-right px-3 md:px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-primary/80 hidden md:table-cell">Valor Total</th>
+                          <th className="text-right px-3 md:px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-primary/80">Parcela do Mês</th>
+                          <th className="text-center px-3 md:px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-primary/80">Parcela</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.items.map((t: any, idx: number) => (
+                          <tr key={idx} className="border-b border-outline-variant/10 last:border-0 hover:bg-surface-container-high/30 transition-colors">
+                            <td className="px-3 md:px-4 py-3">
+                              <Link href={`/transactions?edit=${t.id}`} className="text-xs font-bold text-on-surface hover:text-primary transition-colors">
+                                {t.cleanEntityName || t.entityName}
+                              </Link>
+                            </td>
+                            <td className="px-3 md:px-4 py-3 text-xs text-on-surface-variant font-medium hidden sm:table-cell">
+                              {t.description ? t.description.replace(/\s*\(\d+\/\d+\)\s*$/, '').trim() : '-'}
+                            </td>
+                            <td className="px-3 md:px-4 py-3 text-xs font-bold text-on-surface-variant text-right hidden md:table-cell">
+                              {formatCurrency(t.totalPurchaseValue)}
+                            </td>
+                            <td className="px-3 md:px-4 py-3 text-xs font-black text-on-surface text-right">
+                              {formatCurrency(t.personMonthValue)}
+                            </td>
+                            <td className="px-3 md:px-4 py-3 text-center">
+                              {t.installments > 1 ? (
+                                <span className="text-[10px] font-black bg-surface-container-highest px-2 py-0.5 rounded-full text-on-surface-variant whitespace-nowrap">
+                                  {t.currentInstallment || 1}/{t.installments}
+                                </span>
+                              ) : (
+                                <span className="text-[9px] font-bold text-on-surface-variant uppercase">Única</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-surface-container-high/30">
+                          <td colSpan={3} className="px-4 md:px-6 py-3 text-xs font-black text-on-surface-variant uppercase tracking-widest text-right hidden md:table-cell">Total das Parcelas do Mês:</td>
+                          <td colSpan={3} className="px-4 md:px-6 py-3 text-xs font-black text-on-surface-variant uppercase tracking-widest text-right md:hidden">Total:</td>
+                          <td className="px-4 md:px-6 py-3 text-sm font-black text-primary text-right hidden md:table-cell">{formatCurrency(data.total)}</td>
+                          <td className="px-4 md:px-6 py-3 text-sm font-black text-primary text-right md:hidden">{formatCurrency(data.total)}</td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
                   </div>
                 </div>
               ))}

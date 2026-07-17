@@ -19,7 +19,9 @@ import {
   ShieldCheck,
   ShieldAlert,
   User as UserIcon,
-  Loader2
+  Loader2,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -33,6 +35,7 @@ export default function UsersPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [userToDelete, setUserToDelete] = useState<any>(null);
   const [editingUser, setEditingUser] = useState<any>(null);
   const [modalLoading, setModalLoading] = useState(false);
@@ -57,9 +60,16 @@ export default function UsersPage() {
     if (!isAdmin && !isFinanceiro) return;
 
     const loadUsers = async () => {
+      const cached = localStorage.getItem('janflow_cache_users_list');
+      if (cached) {
+        setUsers(JSON.parse(cached));
+        setLoading(false);
+      }
+
       const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
       if (data) {
         setUsers(data);
+        localStorage.setItem('janflow_cache_users_list', JSON.stringify(data));
       }
       setLoading(false);
     };
@@ -99,134 +109,99 @@ export default function UsersPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setModalLoading(true);
     setError(null);
     setSuccess(null);
+    setModalLoading(true);
 
-    try {
-      if (editingUser) {
-        // 1. Update Profile in public.profiles
-        const profileUpdate: any = {
-          name: formData.name,
-          role: formData.role,
-          photoURL: formData.photoURL
-        };
-        
-        // If password is provided, also update it in the profiles table if it's used there
-        if (formData.password) {
-          profileUpdate.password = formData.password;
-        }
+    const tempUsers = editingUser 
+      ? users.map(u => u.id === editingUser.id ? { ...u, name: formData.name, role: formData.role, photoURL: formData.photoURL } : u)
+      : [{ 
+          id: 'temp_' + Date.now(), 
+          email: formData.email, 
+          name: formData.name, 
+          role: formData.role, 
+          photoURL: formData.photoURL, 
+          created_at: new Date().toISOString() 
+        }, ...users];
+    
+    setUsers(tempUsers);
+    localStorage.setItem('janflow_cache_users_list', JSON.stringify(tempUsers));
+    
+    setIsModalOpen(false);
+    setModalLoading(false);
 
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .update(profileUpdate)
-          .eq('id', editingUser.id);
-
-        if (profileError) throw profileError;
-
-        // 2. Update Password if provided
-        if (formData.password) {
-          const isCurrentUser = String(editingUser.id) === String(user?.uid || user?.id);
+    (async () => {
+      try {
+        if (editingUser) {
+          const profileUpdate: any = {
+            name: formData.name,
+            role: formData.role,
+            photoURL: formData.photoURL
+          };
           
-          if (isCurrentUser) {
-            // Update current user password
-            const { error: authError } = await supabase.auth.updateUser({
-              password: formData.password
-            });
-            if (authError) throw authError;
-          } else {
-            // Update via API route — exige sessão de admin (token no header)
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session?.access_token) {
-              throw new Error('Sessão expirada. Faça login novamente.');
+          if (formData.password) profileUpdate.password = formData.password;
+
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .update(profileUpdate)
+            .eq('id', editingUser.id);
+
+          if (profileError) throw profileError;
+
+          if (formData.password) {
+            const isCurrentUser = String(editingUser.id) === String(user?.uid || user?.id);
+            if (isCurrentUser) {
+              const { error: authError } = await supabase.auth.updateUser({ password: formData.password });
+              if (authError) throw authError;
+            } else {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session?.access_token) {
+                await fetch('/api/users/update-password', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+                  body: JSON.stringify({ userId: editingUser.id, password: formData.password }),
+                });
+              }
             }
-            const response = await fetch('/api/users/update-password', {
+          }
+        } else {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.access_token) {
+            const response = await fetch('/api/users/create', {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${session.access_token}`,
-              },
-              body: JSON.stringify({ userId: editingUser.id, password: formData.password }),
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+              body: JSON.stringify({
+                email: formData.email,
+                password: formData.password,
+                name: formData.name,
+                role: formData.role,
+                photoURL: formData.photoURL,
+              }),
             });
-            
-            if (!response.ok) {
-              const resData = await response.json();
-              throw new Error(resData.error || 'Erro ao atualizar senha de outro usuário. Certifique-se que o Admin tenha a Role Key configurada.');
+            const resData = await response.json();
+            if (response.ok && resData.user) {
+              const { data: newProfile } = await supabase.from('profiles').select('*').eq('id', resData.user.id).single();
+              if (newProfile) {
+                const finalUsers = [newProfile, ...users];
+                setUsers(finalUsers);
+                localStorage.setItem('janflow_cache_users_list', JSON.stringify(finalUsers));
+              }
+            } else {
+              throw new Error(resData.error || 'Erro ao criar');
             }
           }
         }
         
-        setUsers(users.map(u => u.id === editingUser.id ? { ...u, name: formData.name, role: formData.role, photoURL: formData.photoURL } : u));
-        setSuccess('Usuário atualizado com sucesso!');
-      } else {
-        // Criação via rota admin server-side (admin.createUser com email_confirm:true).
-        // Isso garante que o usuário já entra confirmado e consegue logar na hora —
-        // o signUp client-side antigo deixava o usuário preso como não-confirmado em
-        // produção (confirmação de e-mail ativa + sem SMTP), quebrando o login.
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) {
-          throw new Error('Sessão expirada. Faça login novamente.');
+        if (editingUser && (editingUser.email === user?.email || editingUser.uid === user?.uid)) {
+          refreshUserData();
         }
-
-        const response = await fetch('/api/users/create', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            email: formData.email,
-            password: formData.password,
-            name: formData.name,
-            role: formData.role,
-            photoURL: formData.photoURL,
-          }),
-        });
-
-        const resData = await response.json();
-        if (!response.ok) {
-          throw new Error(resData.error || 'Erro ao criar usuário. Certifique-se que o Admin tenha a Role Key configurada.');
-        }
-
-        const createdUser = resData.user;
-
-        // Busca o perfil recém-criado para exibir na lista
-        const { data: newProfile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', createdUser.id)
-          .single();
-
-        if (newProfile) {
-          setUsers([newProfile, ...users]);
-        } else {
-          // Fallback se a leitura do perfil falhar
-          setUsers([{
-            id: createdUser.id,
-            email: formData.email,
-            name: formData.name,
-            role: formData.role,
-            photoURL: formData.photoURL,
-            created_at: new Date().toISOString()
-          }, ...users]);
-        }
-
-        setSuccess('Usuário criado com sucesso!');
+      } catch (err: any) {
+        console.error('Erro no background:', err);
+        // Refresh completo caso dê erro
+        const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+        if (data) setUsers(data);
       }
-      
-      // Refresh context if editing current user
-      if (editingUser && (editingUser.email === user?.email || editingUser.uid === user?.uid)) {
-        refreshUserData();
-      }
-
-      setTimeout(() => {
-        setIsModalOpen(false);
-      }, 1500);
-    } catch (err: any) {
-      setError(err.message || 'Erro ao salvar usuário.');
-    } finally {
-      setModalLoading(false);
-    }
+    })();
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -250,30 +225,39 @@ export default function UsersPage() {
     const currentUserId = user?.uid || user?.id;
     const userIdToDelete = userToDelete.id || userToDelete.uid;
     
-    // Safety check: don't delete current user or the main admin
-    if (String(userIdToDelete) === String(currentUserId) || userToDelete.email === 'ejanerik@gmail.com') {
-      setError("Você não pode excluir o administrador principal ou o usuário logado.");
+    // Safety check: don't delete current user
+    if (String(userIdToDelete) === String(currentUserId)) {
+      setError("Você não pode excluir o seu próprio usuário logado.");
       setIsDeleteModalOpen(false);
       setUserToDelete(null);
       return;
     }
 
-    try {
-      const { error } = await supabase.from('profiles').delete().eq('id', userIdToDelete);
-      if (error) throw error;
+    // Otimista
+    const updatedUsers = users.filter(u => String(u.id) !== String(userIdToDelete));
+    setUsers(updatedUsers);
+    localStorage.setItem('janflow_cache_users_list', JSON.stringify(updatedUsers));
+    setIsDeleteModalOpen(false);
+    setUserToDelete(null);
 
-      const updatedUsers = users.filter(u => 
-        String(u.id) !== String(userIdToDelete) && 
-        String(u.uid) !== String(userIdToDelete)
-      );
-      
-      setUsers(updatedUsers);
-      setSuccess('Usuário excluído com sucesso!');
-      setIsDeleteModalOpen(false);
-      setUserToDelete(null);
-    } catch (err: any) {
-      setError(err.message || 'Erro ao excluir usuário.');
-    }
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          await fetch('/api/users/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ uid: userIdToDelete }),
+          });
+        }
+        await supabase.from('profiles').delete().eq('id', userIdToDelete);
+      } catch (err: any) {
+        console.error('Erro ao deletar:', err);
+        // refresh full on error
+        const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+        if (data) setUsers(data);
+      }
+    })();
   };
 
   const confirmDelete = (u: any) => {
@@ -319,13 +303,15 @@ export default function UsersPage() {
             <h1 className="text-3xl font-black tracking-tight text-on-surface">Gestão de Usuários</h1>
             <p className="text-on-surface-variant font-medium">Controle quem tem acesso ao sistema e seus níveis de permissão.</p>
           </div>
-          <button
-            onClick={() => handleOpenModal()}
-            className="bg-primary text-on-primary px-6 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
-          >
-            <UserPlus size={20} />
-            Novo Usuário
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => handleOpenModal()}
+              className="bg-primary text-on-primary px-6 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
+            >
+              <UserPlus size={20} />
+              Novo Usuário
+            </button>
+          )}
         </div>
 
         <div className="relative">
@@ -365,12 +351,14 @@ export default function UsersPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
-                    <button 
-                      onClick={() => handleOpenModal(u)}
-                      className="p-2 text-on-surface-variant hover:bg-surface-container-high rounded-xl transition-colors"
-                    >
-                      <Edit2 size={18} />
-                    </button>
+                    {isAdmin && (
+                      <button 
+                        onClick={() => handleOpenModal(u)}
+                        className="p-2 text-on-surface-variant hover:bg-surface-container-high rounded-xl transition-colors"
+                      >
+                        <Edit2 size={18} />
+                      </button>
+                    )}
                     {isAdmin && String(u.id) !== String(user?.uid || user?.id) && String(u.uid) !== String(user?.uid || user?.id) && (
                       <button 
                         onClick={() => confirmDelete(u)}
@@ -394,12 +382,14 @@ export default function UsersPage() {
                      <ShieldAlert size={12} />}
                     {u.role}
                   </div>
-                  <button
-                    onClick={() => handleResetPassword(u.email)}
-                    className="text-[10px] font-bold text-primary hover:underline uppercase tracking-widest"
-                  >
-                    Redefinir Senha
-                  </button>
+                  {isAdmin && (
+                    <button
+                      onClick={() => handleResetPassword(u.email)}
+                      className="text-[10px] font-bold text-primary hover:underline uppercase tracking-widest"
+                    >
+                      Redefinir Senha
+                    </button>
+                  )}
                 </div>
               </motion.div>
             ))}
@@ -468,14 +458,26 @@ export default function UsersPage() {
                           accept="image/*"
                           className="hidden"
                         />
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="w-full px-4 py-3 bg-surface-container-high hover:bg-surface-container-highest rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all"
-                        >
-                          <Camera size={18} />
-                          Anexar Foto
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="flex-1 px-4 py-3 bg-surface-container-high hover:bg-surface-container-highest rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all"
+                          >
+                            <Camera size={18} />
+                            Anexar Foto
+                          </button>
+                          {formData.photoURL && (
+                            <button
+                              type="button"
+                              onClick={() => setFormData({...formData, photoURL: ''})}
+                              className="px-4 py-3 bg-error/10 text-error hover:bg-error/20 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all"
+                              title="Remover Foto"
+                            >
+                              <X size={18} />
+                            </button>
+                          )}
+                        </div>
                         <p className="text-[10px] text-on-surface-variant font-medium text-center">
                           Formatos aceitos: JPG, PNG. Máx 800KB.
                         </p>
@@ -512,14 +514,24 @@ export default function UsersPage() {
                     <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">
                       {editingUser ? 'Nova Senha (deixe em branco para não alterar)' : 'Senha Inicial'}
                     </label>
-                    <input
-                      type="password"
-                      required={!editingUser}
-                      value={formData.password}
-                      onChange={(e) => setFormData({...formData, password: e.target.value})}
-                      className="w-full px-5 py-4 bg-surface-container-high border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-primary/20 transition-all"
-                      placeholder="••••••••"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="new-password"
+                        required={!editingUser}
+                        value={formData.password}
+                        onChange={(e) => setFormData({...formData, password: e.target.value})}
+                        className="w-full px-5 py-4 bg-surface-container-high border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-primary/20 transition-all pr-12"
+                        placeholder="••••••••"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-primary transition-colors"
+                      >
+                        {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-2">

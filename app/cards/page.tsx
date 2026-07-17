@@ -30,7 +30,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recha
 
 export default function CardsPage() {
   const router = useRouter();
-  const { user, isAuthReady, context } = useAppContext();
+  const { user, isAuthReady, context, isAdmin, isFinanceiro } = useAppContext();
   const [cards, setCards] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -74,6 +74,16 @@ export default function CardsPage() {
     if (!user) return;
 
     const loadData = async () => {
+      // 1. Cache Instantâneo
+      const cachedCards = localDB.getCached('cards', user.uid, context);
+      if (cachedCards.length > 0) {
+        setCards(cachedCards);
+        if (!selectedCardId) {
+          setSelectedCardId(cachedCards[0].id);
+        }
+      }
+
+      // 2. Busca Atualizada
       const docs = await localDB.get('cards', user.uid, context);
       setCards(docs);
       if (docs.length > 0 && !selectedCardId) {
@@ -88,7 +98,16 @@ export default function CardsPage() {
     if (!user || !selectedCardId) return;
 
     const loadTransactions = async () => {
-      const allTransactions = await localDB.get('transactions', user.uid, context);
+      const selectedCard = cards.find(c => c.id === selectedCardId);
+      const closingDay = selectedCard?.closingDay || 10;
+      
+      const cycleEnd = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), closingDay);
+      const cycleStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1, closingDay + 1);
+      
+      const from = format(cycleStart, 'yyyy-MM-dd');
+      const to = format(cycleEnd, 'yyyy-MM-dd');
+
+      const allTransactions = await localDB.get('transactions', user.uid, context, { from, to });
       const cardTransactions = allTransactions
         .filter((t: any) => t.cardId === selectedCardId)
         .sort((a: any, b: any) => {
@@ -100,38 +119,44 @@ export default function CardsPage() {
     };
 
     loadTransactions();
-  }, [user, selectedCardId, context, refreshTrigger]);
+  }, [user, selectedCardId, context, selectedMonth, refreshTrigger]);
 
   const handleAddCard = async () => {
     if (!newCard.name || !user) return;
     setLoading(true);
 
-    try {
-      const payload = {
-        ...newCard,
-        uid: user.uid,
-        context: context, // Use the current app context
-        type: context === 'empresa' ? 'pj' : 'pessoal', // Sync type with context
-        closingDay: parseInt(newCard.closingDay) || 10,
-        createdAt: new Date().toISOString()
-      };
+    const payload = {
+      ...newCard,
+      uid: user.uid,
+      context: context,
+      type: context === 'empresa' ? 'pj' : 'pessoal',
+      closingDay: parseInt(newCard.closingDay) || 10,
+      createdAt: new Date().toISOString(),
+      id: editingCard?.id || 'temp_' + Date.now(),
+    };
 
-      if (editingCard) {
-        await localDB.save('cards', { ...payload, id: editingCard.id });
-      } else {
+    // Atualização Otimista
+    setCards(prev => {
+      if (editingCard) return prev.map(c => c.id === payload.id ? payload : c);
+      return [payload, ...prev];
+    });
+
+    setIsModalOpen(false);
+    setEditingCard(null);
+    setNewCard({ name: '', bank: '', brand: '', type: context === 'empresa' ? 'pj' : 'pessoal', closingDay: '10' });
+    setIsOtherBrand(false);
+    setLoading(false);
+
+    // Background
+    (async () => {
+      try {
         await localDB.save('cards', payload);
+        triggerRefresh();
+      } catch (error) {
+        console.error('Error saving card:', error);
+        triggerRefresh();
       }
-
-      triggerRefresh();
-      setIsModalOpen(false);
-      setEditingCard(null);
-      setNewCard({ name: '', bank: '', brand: '', type: context === 'empresa' ? 'pj' : 'pessoal', closingDay: '10' });
-      setIsOtherBrand(false);
-    } catch (error) {
-      console.error('Error saving card:', error);
-    } finally {
-      setLoading(false);
-    }
+    })();
   };
 
   const handleDeleteCard = async (id: string) => {
@@ -140,10 +165,22 @@ export default function CardsPage() {
 
   const confirmDelete = async () => {
     if (cardToDelete) {
-      await localDB.delete('cards', cardToDelete);
-      triggerRefresh();
-      if (selectedCardId === cardToDelete) setSelectedCardId(null);
+      const idToDelete = cardToDelete;
+      
+      // Otimista
+      setCards(prev => prev.filter(c => c.id !== idToDelete));
+      if (selectedCardId === idToDelete) setSelectedCardId(null);
       setCardToDelete(null);
+
+      (async () => {
+        try {
+          await localDB.delete('cards', idToDelete);
+          triggerRefresh();
+        } catch (err) {
+          console.error(err);
+          triggerRefresh();
+        }
+      })();
     }
   };
 
@@ -287,12 +324,14 @@ export default function CardsPage() {
                         >
                           <Edit2 size={16} />
                         </button>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); handleDeleteCard(card.id); }}
-                          className="p-2 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-all"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        {(isAdmin || isFinanceiro) && (
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleDeleteCard(card.id); }}
+                            className="p-2 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-all"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     </div>
 

@@ -110,11 +110,19 @@ export default function CategoriesPage() {
     if (!user) return;
 
     const loadData = async () => {
+      // 1. Cache Instantâneo
+      const cachedEmpresa = localDB.getCached('categories', user.uid, 'empresa');
+      const cachedPessoal = localDB.getCached('categories', user.uid, 'pessoal');
+      if (cachedEmpresa.length > 0 || cachedPessoal.length > 0) {
+        setCategories([...cachedEmpresa, ...cachedPessoal]);
+      }
+
+      // 2. Busca Atualizada
       const catsEmpresa = await localDB.get('categories', user.uid, 'empresa');
       const catsPessoal = await localDB.get('categories', user.uid, 'pessoal');
       const cats = catsEmpresa.concat(catsPessoal);
       
-      if (cats.length === 0) {
+      if (cats.length === 0 && !cachedEmpresa.length) {
         // Seed default categories
         for (const cat of defaultCategories) {
           await localDB.save('categories', { ...cat, uid: user.uid });
@@ -132,15 +140,28 @@ export default function CategoriesPage() {
 
   const handleAddCategory = async () => {
     if (!newCategory.name || !user) return;
-    await localDB.save('categories', {
+    
+    const optimisticCat = {
       ...newCategory,
+      id: 'temp_' + Date.now(),
       uid: user.uid,
       createdAt: new Date().toISOString()
-    });
+    };
+
+    setCategories(prev => [...prev, optimisticCat]);
     setNewCategory({ name: '', flow: 'despesa_variavel', context: 'empresa', color: getRandomColor() });
-    triggerRefresh();
     setIsModalOpen(false);
     setHasChanges(true);
+
+    (async () => {
+      try {
+        await localDB.save('categories', optimisticCat);
+        triggerRefresh();
+      } catch (err) {
+        console.error(err);
+        triggerRefresh();
+      }
+    })();
   };
 
   const confirmDelete = (id: string) => {
@@ -150,12 +171,21 @@ export default function CategoriesPage() {
 
   const handleDelete = async () => {
     if (categoryToDelete) {
-      await localDB.delete('categories', categoryToDelete);
-      setCategories(prev => prev.filter(c => c.id !== categoryToDelete));
-      triggerRefresh();
+      const idToDelete = categoryToDelete;
+      setCategories(prev => prev.filter(c => c.id !== idToDelete));
       setIsDeleteModalOpen(false);
       setCategoryToDelete(null);
       setHasChanges(true);
+
+      (async () => {
+        try {
+          await localDB.delete('categories', idToDelete);
+          triggerRefresh();
+        } catch (err) {
+          console.error(err);
+          triggerRefresh();
+        }
+      })();
     }
   };
 
@@ -166,11 +196,22 @@ export default function CategoriesPage() {
 
   const handleSaveEdit = async () => {
     if (!currentCategory || !currentCategory.name) return;
-    await localDB.save('categories', currentCategory);
-    triggerRefresh();
+    
+    const catToSave = currentCategory;
+    setCategories(prev => prev.map(c => c.id === catToSave.id ? catToSave : c));
     setIsEditModalOpen(false);
     setCurrentCategory(null);
     setHasChanges(true);
+
+    (async () => {
+      try {
+        await localDB.save('categories', catToSave);
+        triggerRefresh();
+      } catch (err) {
+        console.error(err);
+        triggerRefresh();
+      }
+    })();
   };
 
   const handleSaveChanges = () => {

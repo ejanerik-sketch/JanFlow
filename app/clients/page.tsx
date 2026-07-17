@@ -28,9 +28,9 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { localDB } from '@/lib/localDB';
-import { cn } from '@/lib/utils';
+import { cn, parseLocalDate } from '@/lib/utils';
 import { jsPDF } from 'jspdf';
-import { format, addDays, differenceInDays, parseISO } from 'date-fns';
+import { format, addDays, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 export default function ClientsPage() {
@@ -81,6 +81,14 @@ export default function ClientsPage() {
     if (!user) return;
 
     const loadData = async () => {
+      // 1. Cache Instantâneo
+      const cachedClients = localDB.getCached('clients', user.uid);
+      if (cachedClients.length > 0) {
+        setClients(cachedClients);
+        setLoading(false);
+      }
+
+      // 2. Busca Atualizada
       const clientsList = await localDB.get('clients', user.uid);
       setClients(clientsList);
       setLoading(false);
@@ -177,7 +185,7 @@ export default function ClientsPage() {
   const calculateRenewal = (contractDate: string) => {
     if (!contractDate) return null;
     try {
-      const start = parseISO(contractDate);
+      const start = parseLocalDate(contractDate);
       const today = new Date();
       
       // Find the next occurrence of the contract's month and day
@@ -202,45 +210,54 @@ export default function ClientsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
-    setModalLoading(true);
-    setError(null);
-    setSuccess(null);
+    
+    const payload = {
+      ...formData,
+      id: editingClient ? editingClient.id : 'temp_' + Date.now(),
+      uid: user.uid,
+      createdAt: new Date().toISOString()
+    };
 
-    try {
-      const payload = {
-        ...formData,
-        uid: user.uid,
-        createdAt: new Date().toISOString()
-      };
+    // 1. Atualização Otimista
+    setClients(prev => {
+      if (editingClient) return prev.map(c => c.id === payload.id ? payload : c);
+      return [payload, ...prev];
+    });
 
-      if (editingClient) {
-        await localDB.save('clients', { ...payload, id: editingClient.id });
-        setSuccess('Cliente atualizado com sucesso!');
-      } else {
+    setIsModalOpen(false);
+
+    // 2. Execução em Background
+    (async () => {
+      try {
         await localDB.save('clients', payload);
-        setSuccess('Cliente cadastrado com sucesso!');
+        triggerRefresh();
+      } catch (err: any) {
+        console.error('Erro ao salvar cliente:', err);
+        triggerRefresh();
       }
-      
-      setTimeout(() => {
-        setIsModalOpen(false);
-      }, 1500);
-    } catch (err: any) {
-      setError(err.message || 'Erro ao salvar cliente.');
-    } finally {
-      setModalLoading(false);
-    }
+    })();
   };
 
   const handleDeleteClient = async () => {
     if (!isAdmin || !clientToDelete) return;
 
-    try {
-      await localDB.delete('clients', clientToDelete);
-      setIsDeleteModalOpen(false);
-      setClientToDelete(null);
-    } catch (error) {
-      console.error('Error deleting client:', error);
-    }
+    const idToDelete = clientToDelete;
+    
+    // Atualização otimista
+    setClients(prev => prev.filter(c => c.id !== idToDelete));
+    setIsDeleteModalOpen(false);
+    setClientToDelete(null);
+
+    // Em background
+    (async () => {
+      try {
+        await localDB.delete('clients', idToDelete);
+        triggerRefresh();
+      } catch (error) {
+        console.error('Error deleting client:', error);
+        triggerRefresh();
+      }
+    })();
   };
 
   const confirmDelete = (clientId: string) => {
@@ -267,7 +284,7 @@ export default function ClientsPage() {
         c.responsibleName,
         c.responsibleCpf,
         c.responsibleEmail,
-        c.contractDate ? format(parseISO(c.contractDate), 'dd/MM/yyyy') : '-',
+        c.contractDate ? format(parseLocalDate(c.contractDate), 'dd/MM/yyyy') : '-',
         renewal ? renewal.date : '-',
         c.description,
         c.createdAt
@@ -383,7 +400,7 @@ export default function ClientsPage() {
     doc.setFont('helvetica', 'bold');
     doc.text('Data do Contrato:', 25, y + 5);
     doc.setFont('helvetica', 'normal');
-    doc.text(`${client.contractDate ? format(parseISO(client.contractDate), 'dd/MM/yyyy') : 'Não definida'}`, 70, y + 5);
+    doc.text(`${client.contractDate ? format(parseLocalDate(client.contractDate), 'dd/MM/yyyy') : 'Não definida'}`, 70, y + 5);
 
     doc.setFont('helvetica', 'bold');
     doc.text('Período de Renovação:', 25, y + 15);
@@ -419,7 +436,7 @@ export default function ClientsPage() {
           doc.addPage();
           y = 20;
         }
-        doc.text(`• Renovação registrada em: ${format(parseISO(r.date), 'dd/MM/yyyy')}`, 25, y);
+        doc.text(`• Renovação registrada em: ${format(parseLocalDate(r.date), 'dd/MM/yyyy')}`, 25, y);
         y += 7;
       });
       y += 5; // Extra space after history
@@ -484,7 +501,7 @@ export default function ClientsPage() {
         }
         
         doc.setTextColor(textColor[0], textColor[1], textColor[2]);
-        doc.text(format(parseISO(p.date), 'dd/MM/yyyy'), 25, y + 5.5);
+        doc.text(format(parseLocalDate(p.date), 'dd/MM/yyyy'), 25, y + 5.5);
         doc.text(p.service, 55, y + 5.5);
         doc.setFont('helvetica', 'bold');
         doc.text(p.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 }), 185, y + 5.5, { align: 'right' });
@@ -564,7 +581,7 @@ export default function ClientsPage() {
       doc.text(c.cnpj || '-', 65, y + 5);
       doc.text(c.responsibleName.substring(0, 25), 105, y + 5);
       doc.text(c.companyEmail || '-', 155, y + 5);
-      doc.text(c.contractDate ? format(parseISO(c.contractDate), 'dd/MM/yy') : '-', 215, y + 5);
+      doc.text(c.contractDate ? format(parseLocalDate(c.contractDate), 'dd/MM/yy') : '-', 215, y + 5);
       doc.text(renewal ? renewal.date : '-', 245, y + 5);
 
       y += 7;
@@ -718,7 +735,7 @@ export default function ClientsPage() {
                       <div className="flex items-center justify-between text-[10px]">
                         <div className="flex items-center gap-1 text-on-surface-variant">
                           <Calendar size={12} className="text-primary" />
-                          <span>Contrato: {format(parseISO(c.contractDate), 'dd/MM/yyyy')}</span>
+                          <span>Contrato: {format(parseLocalDate(c.contractDate), 'dd/MM/yyyy')}</span>
                         </div>
                         <div className="flex items-center gap-1 text-on-surface-variant">
                           <RefreshCw size={12} className="text-primary" />
@@ -954,7 +971,7 @@ export default function ClientsPage() {
                             formData.renewalHistory.map((r: any) => (
                               <div key={r.id} className="flex items-center justify-between bg-surface-container-lowest p-2 rounded-xl border border-outline-variant/20">
                                 <div className="text-xs font-bold text-on-surface">
-                                  {format(parseISO(r.date), 'dd/MM/yyyy')}
+                                  {format(parseLocalDate(r.date), 'dd/MM/yyyy')}
                                 </div>
                                 <button
                                   type="button"
@@ -1017,7 +1034,7 @@ export default function ClientsPage() {
                               <div key={p.id} className="flex items-center justify-between bg-surface-container-lowest p-3 rounded-xl border border-outline-variant/20">
                                 <div className="flex items-center gap-3">
                                   <div className="text-[10px] font-black text-primary bg-primary/10 px-2 py-1 rounded-md">
-                                    {format(parseISO(p.date), 'dd/MM/yy')}
+                                    {format(parseLocalDate(p.date), 'dd/MM/yy')}
                                   </div>
                                   <div className="text-xs font-bold text-on-surface">{p.service}</div>
                                 </div>

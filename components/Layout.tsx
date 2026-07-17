@@ -60,10 +60,10 @@ const SidebarContent = ({
   const navItems = [
     { name: 'Dashboard', icon: LayoutDashboard, href: '/', analistaHidden: true },
     { name: 'Lançamentos', icon: ReceiptText, href: '/transactions', analistaHidden: true },
-    { name: 'Categorias', icon: Tags, href: '/categories', adminOnly: true },
-    { name: 'Orçamentos', icon: Target, href: '/budgets', analistaHidden: true },
     { name: 'Cartões', icon: CreditCard, href: '/cards', analistaHidden: true },
     { name: 'Relatórios', icon: BarChart3, href: '/reports' },
+    { name: 'Orçamentos', icon: Target, href: '/budgets', analistaHidden: true },
+    { name: 'Categorias', icon: Tags, href: '/categories', adminOnly: true },
     { name: 'Clientes', icon: Building2, href: '/clients', adminOrFinanceiro: true, businessOnly: true },
     { name: 'Usuários', icon: User, href: '/users', adminOrFinanceiro: true },
   ];
@@ -144,7 +144,7 @@ export default function Layout({ children }: LayoutProps) {
   useEffect(() => {
     if (isAuthReady && !user) {
       router.push('/login');
-    } else if (isAuthReady && user && isAnalista && pathname !== '/reports') {
+    } else if (isAuthReady && user && isAnalista && pathname !== '/reports' && pathname !== '/settings') {
       router.push('/reports');
     }
   }, [user, isAuthReady, isAnalista, pathname, router]);

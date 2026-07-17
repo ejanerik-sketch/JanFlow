@@ -56,13 +56,14 @@ const transactionSchema = z.object({
   observation: z.string().optional(),
   isShared: z.boolean().optional(),
   sharedWith: z.string().optional(),
+  sharedSplit: z.string().optional(),
 }).refine((data) => {
-  if (data.paymentMethod === 'cartao_credito' && !data.cardId) {
+  if (['cartao_credito', 'cartao_debito'].includes(data.paymentMethod) && !data.cardId) {
     return false;
   }
   return true;
 }, {
-  message: "Selecione um cartão para pagamentos com cartão de crédito",
+  message: "Selecione um cartão para o pagamento",
   path: ["cardId"],
 });
 
@@ -71,13 +72,14 @@ type TransactionFormValues = z.infer<typeof transactionSchema>;
 function TransactionsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, isAuthReady, context } = useAppContext();
+  const { user, isAuthReady, context, isAdmin, isFinanceiro } = useAppContext();
   const isBusiness = context === 'empresa';
   const themeColor = isBusiness ? 'text-[#1d8490]' : 'text-[#ff6330]';
   const themeBg = isBusiness ? 'bg-[#1d8490]' : 'bg-[#ff6330]';
   const themeBorder = isBusiness ? 'border-[#1d8490]' : 'border-[#ff6330]';
 
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [allTransactions, setAllTransactions] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [cards, setCards] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
@@ -88,13 +90,15 @@ function TransactionsContent() {
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'todos' | 'receita' | 'despesa'>('todos');
+  const [filterCategory, setFilterCategory] = useState('todas');
+  const [filterStatus, setFilterStatus] = useState('todos');
   const [loading, setLoading] = useState(false);
   const [relatedInstallments, setRelatedInstallments] = useState<any[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isPreviousMonthSearchOpen, setIsPreviousMonthSearchOpen] = useState(false);
   const [previousMonthTransactions, setPreviousMonthTransactions] = useState<any[]>([]);
-  const itemsPerPage = 10;
+  const [sharedSplitState, setSharedSplitState] = useState<Record<string, number>>({});
+  const [iParticipate, setIParticipate] = useState(true);
 
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -123,6 +127,28 @@ function TransactionsContent() {
   const isRecurringCreditCard = watch('isRecurringCreditCard');
   const entityName = watch('entityName');
   const watchedCardId = watch('cardId');
+  const watchedIsShared = watch('isShared');
+  const watchedSharedWith = watch('sharedWith');
+
+  // Auto-calculate shared split when people or value changes
+  useEffect(() => {
+    if (!watchedIsShared || !watchedSharedWith || !watchedValue) return;
+    const people = watchedSharedWith.split(',').map((p: string) => p.trim()).filter(Boolean);
+    if (people.length === 0) return;
+    
+    // Only auto-split if there's no existing custom split or if people list changed
+    const existingPeople = Object.keys(sharedSplitState);
+    const peopleChanged = people.length !== existingPeople.length || 
+      people.some((p: string) => !existingPeople.some(ep => ep.toLowerCase() === p.toLowerCase()));
+    
+    if (peopleChanged || existingPeople.length === 0) {
+      const totalPeople = iParticipate ? people.length + 1 : people.length;
+      const perPerson = Math.round((watchedValue / totalPeople) * 100) / 100;
+      const newSplit: Record<string, number> = {};
+      people.forEach((p: string) => { newSplit[p] = perPerson; });
+      setSharedSplitState(newSplit);
+    }
+  }, [watchedIsShared, watchedSharedWith, watchedValue, iParticipate]);
 
   useEffect(() => {
     if (transactionType === 'receita' && !isBusiness && paymentMethod === 'cartao_credito') {
@@ -146,8 +172,94 @@ function TransactionsContent() {
     setIsPreviousMonthSearchOpen(true);
   };
 
+  const pullRecurringFromPrevious = async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const prevMonthDate = addMonths(selectedMonth, -1);
+      const startPrev = startOfMonth(prevMonthDate);
+      const endPrev = endOfMonth(prevMonthDate);
+      
+      const startCurr = startOfMonth(selectedMonth);
+      const endCurr = endOfMonth(selectedMonth);
+
+      // Load previous month's transactions
+      const allTrans = await localDB.get('transactions', user.uid, context);
+      
+      // Filter recurrent from previous month
+      const prevRecurrent = allTrans.filter((t: any) => {
+        const tDate = parseLocalDate(t.date);
+        return isWithinInterval(tDate, { start: startPrev, end: endPrev }) && t.recurrent;
+      });
+
+      // Filter recurrent already in current month (to prevent duplicates)
+      const currRecurrent = allTrans.filter((t: any) => {
+        const tDate = parseLocalDate(t.date);
+        return isWithinInterval(tDate, { start: startCurr, end: endCurr }) && t.recurrent;
+      });
+
+      const toClone = prevRecurrent.filter((prevTx: any) => {
+        return !currRecurrent.some((currTx: any) => 
+          currTx.entityName === prevTx.entityName && 
+          currTx.value === prevTx.value &&
+          currTx.category === prevTx.category
+        );
+      });
+
+      if (toClone.length === 0) {
+        alert("Nenhum lançamento recorrente novo para importar do mês anterior.");
+        return;
+      }
+
+      // Clone them with updated dates to the selected month
+      const clonedPayloads = toClone.map((t: any) => {
+        const prevDate = parseLocalDate(t.date);
+        const newDate = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), prevDate.getDate(), 12, 0, 0);
+        
+        return {
+          type: t.type,
+          category: t.category,
+          entityName: t.entityName,
+          description: t.description || '',
+          value: t.value,
+          observation: t.observation || '',
+          paymentMethod: t.paymentMethod,
+          cardId: t.cardId || null,
+          isInstallment: false,
+          installments: 1,
+          isShared: t.isShared || false,
+          sharedWith: t.sharedWith || '',
+          recurrent: true,
+          uid: user.uid,
+          context,
+          date: toDbDate(format(newDate, 'yyyy-MM-dd')),
+          createdAt: new Date().toISOString()
+        };
+      });
+
+      await localDB.saveMany('transactions', clonedPayloads);
+      triggerRefresh();
+      alert(`${clonedPayloads.length} lançamentos recorrentes copiados com sucesso!`);
+    } catch (err) {
+      console.error("Error pulling recurrent transactions:", err);
+      alert("Erro ao puxar lançamentos recorrentes.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const fillFromPrevious = (t: any) => {
-    setValue('entityName', t.entityName);
+    if (transactionType === 'receita' && isBusiness) {
+      const isClient = clients.some(c => c.companyName === t.entityName);
+      if (!isClient) {
+        setValue('entityName', 'outro');
+        setValue('otherEntityName', t.entityName);
+      } else {
+        setValue('entityName', t.entityName);
+      }
+    } else {
+      setValue('entityName', t.entityName);
+    }
     setValue('value', t.value);
     setValue('category', t.category);
     setValue('paymentMethod', t.paymentMethod);
@@ -206,8 +318,8 @@ function TransactionsContent() {
     }
 
     const baseDate = (paymentMethod === 'cartao_credito' || paymentMethod === 'financiamento') && firstInstallmentDate 
-      ? new Date(firstInstallmentDate) 
-      : new Date(watchedDate);
+      ? parseLocalDate(firstInstallmentDate) 
+      : parseLocalDate(watchedDate);
     
     const startDate = baseDate;
     const previews = [];
@@ -241,31 +353,56 @@ function TransactionsContent() {
   useEffect(() => {
     if (!user) return;
 
-    const loadData = async () => {
-      const from = format(startOfMonth(selectedMonth), 'yyyy-MM-dd');
-      const to = format(endOfMonth(selectedMonth), 'yyyy-MM-dd');
+    const processData = (trans: any[], cats: any[], crds: any[], clnts: any[]) => {
+      const processed = trans.map(t => {
+        let userPortion = t.value;
+        if (t.isShared && t.sharedSplit) {
+          try {
+            const split = JSON.parse(t.sharedSplit);
+            const othersTotal = Object.values(split).reduce((sum: number, v: any) => sum + Number(v), 0);
+            const p = Number(t.value) - othersTotal;
+            userPortion = p > 0 ? Math.round(p * 100) / 100 : 0;
+          } catch {}
+        }
+        return { ...t, userPortion };
+      });
+      setAllTransactions(processed);
 
-      // Busca em paralelo (antes eram 3-4 round-trips sequenciais). As
-      // transações já vêm filtradas pelo mês direto do banco.
-      const [trans, cats, crds] = await Promise.all([
-        localDB.get('transactions', user.uid, context, { from, to }),
-        localDB.get('categories', user.uid, context),
-        localDB.get('cards', user.uid, context),
-      ]);
-
-      setTransactions([...trans].sort((a: any, b: any) => {
+      setTransactions([...processed].filter(t => t.userPortion > 0 || !t.isShared).sort((a: any, b: any) => {
         const dateA = parseLocalDate(a.date).getTime();
         const dateB = parseLocalDate(b.date).getTime();
         return dateB - dateA;
       }));
 
       setCards(crds);
+      setClients(clnts || []);
+      setCategories(cats);
+    };
 
-      const savedClients = localStorage.getItem('janflow_clients_list');
-      setClients(savedClients ? JSON.parse(savedClients) : []);
+    const loadData = async () => {
+      const from = format(startOfMonth(selectedMonth), 'yyyy-MM-dd');
+      const to = format(endOfMonth(selectedMonth), 'yyyy-MM-dd');
 
-      if (cats.length === 0) {
-        // Seed default categories if none exist
+      // 1. Carrega do Cache Instantaneamente
+      const cachedTrans = localDB.getCached('transactions', user.uid, context, { from, to });
+      const cachedCats = localDB.getCached('categories', user.uid, context);
+      const cachedCrds = localDB.getCached('cards', user.uid, context);
+      const cachedClnts = localDB.getCached('clients', user.uid);
+      
+      if (cachedTrans.length > 0 || cachedCats.length > 0) {
+        processData(cachedTrans, cachedCats, cachedCrds, cachedClnts);
+      }
+
+      // 2. Busca Atualizada
+      const [trans, cats, crds, clnts] = await Promise.all([
+        localDB.get('transactions', user.uid, context, { from, to }),
+        localDB.get('categories', user.uid, context),
+        localDB.get('cards', user.uid, context),
+        localDB.get('clients', user.uid),
+      ]);
+
+      if (cats.length === 0 && !cachedCats.length) {
+        // Seed default categories se banco vazio
         const defaultCategories = [
           { name: 'CONTRATO', flow: 'receita', context: 'empresa', color: '#10b981' },
           { name: 'SERVIÇO AVULSO', flow: 'receita', context: 'empresa', color: '#3b82f6' },
@@ -310,15 +447,11 @@ function TransactionsContent() {
           { name: 'FATURA', flow: 'despesa_variavel', context: 'pessoal', color: '#06b6d4' },
           { name: 'OUTROS', flow: 'despesa_variavel', context: 'pessoal', color: '#f97316' },
         ];
-        // Insere todas de uma vez (1 round-trip) em vez de ~40 sequenciais.
-        await localDB.saveMany(
-          'categories',
-          defaultCategories.map((cat) => ({ ...cat, uid: user.uid }))
-        );
+        await localDB.saveMany('categories', defaultCategories.map((cat) => ({ ...cat, uid: user.uid })));
         const seededCats = await localDB.get('categories', user.uid, context);
-        setCategories(seededCats);
+        processData(trans, seededCats, crds, clnts);
       } else {
-        setCategories(cats);
+        processData(trans, cats, crds, clnts);
       }
     };
 
@@ -328,8 +461,9 @@ function TransactionsContent() {
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingTransaction(null);
+    setSharedSplitState({});
     reset();
-    if (searchParams.get('new') === 'true') {
+    if (searchParams.toString()) {
       router.replace('/transactions');
     }
   };
@@ -359,6 +493,7 @@ function TransactionsContent() {
         installments: data.installments || 1,
         isShared: data.isShared || false,
         sharedWith: data.isShared ? data.sharedWith : '',
+        sharedSplit: data.isShared && Object.keys(sharedSplitState).length > 0 ? JSON.stringify(sharedSplitState) : '',
         recurrent: data.recurrent || false,
         uid: user.uid,
         context,
@@ -373,56 +508,151 @@ function TransactionsContent() {
         }
       }
 
-      if (editingTransaction) {
-        await localDB.save('transactions', {
-          ...basePayload,
-          id: editingTransaction.id,
-          date: toDbDate(data.date),
-          renewalDate: toDbDate(data.renewalDate),
-        });
-      } else if (hasInstallments) {
-        // Handle installments
-        const installmentValue = data.value / data.installments;
-        const rawDate = (data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate
-          ? data.firstInstallmentDate
-          : data.date;
-
-        const baseDate = new Date(String(rawDate).slice(0, 10) + 'T12:00:00Z');
-        
-        const startDate = baseDate;
-        const groupId = Math.random().toString(36).substr(2, 9);
-        
-        for (let i = 0; i < data.installments; i++) {
-          const installmentDate = addMonths(startDate, i);
-          const installmentNum = (i + 1).toString().padStart(2, '0');
-          const totalInstallments = data.installments.toString().padStart(2, '0');
-          
-          await localDB.save('transactions', {
-            ...basePayload,
-            value: installmentValue,
-            date: installmentDate.toISOString(),
-            description: `${finalEntityName} (${installmentNum}/${totalInstallments})`,
-            installments: data.installments,
-            currentInstallment: i + 1,
-            groupId,
-            status: isCreditCard ? 'pago' : (i === 0 ? data.status : 'a_pagar'),
-          });
+      // 1. Atualização Otimista da UI
+      const optimisticValue = (hasInstallments && data.installments > 1) ? (data.value / data.installments) : data.value;
+      const optimisticTx = {
+        ...basePayload,
+        value: optimisticValue,
+        id: editingTransaction ? editingTransaction.id : 'temp_' + Date.now(),
+        date: toDbDate(data.date),
+        renewalDate: toDbDate(data.renewalDate),
+      };
+      
+      setTransactions(prev => {
+        if (editingTransaction) {
+          return prev.map(t => t.id === optimisticTx.id ? optimisticTx : t).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         }
-      } else {
-        await localDB.save('transactions', {
-          ...basePayload,
-          date: toDbDate(data.date),
-          renewalDate: toDbDate(data.renewalDate),
-        });
-      }
+        return [optimisticTx, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      });
 
-      triggerRefresh();
+      // Fechar modal imediatamente
       closeModal();
-    } catch (error) {
+      setLoading(false);
+
+      // 2. Execução em Background
+      (async () => {
+        try {
+          if (editingTransaction) {
+            if (relatedInstallments.length > 0 && data.installments === editingTransaction.installments) {
+              const installmentValue = data.value / data.installments;
+              const rawDate = (data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate
+                ? data.firstInstallmentDate
+                : data.date;
+              const baseDate = new Date(String(rawDate).slice(0, 10) + 'T12:00:00Z');
+              
+              const arr = relatedInstallments.map((t, i) => {
+                 const installmentDate = addMonths(baseDate, i);
+                 const installmentNum = (i + 1).toString().padStart(2, '0');
+                 const totalInstallments = data.installments.toString().padStart(2, '0');
+                 return {
+                     ...basePayload,
+                     id: t.id,
+                     value: installmentValue,
+                     date: toDbDate(format(installmentDate, 'yyyy-MM-dd'))!,
+                     description: `${finalEntityName} (${installmentNum}/${totalInstallments})`,
+                     status: t.status,
+                     groupId: t.groupId || editingTransaction.groupId,
+                     currentInstallment: i + 1,
+                     createdAt: t.createdAt
+                 };
+              });
+              await Promise.all(arr.map(t => localDB.save('transactions', t)));
+            } else if ((relatedInstallments.length > 0 && data.installments !== editingTransaction.installments) || (relatedInstallments.length === 0 && hasInstallments)) {
+              if (relatedInstallments.length > 0) {
+                for (const t of relatedInstallments) {
+                  await localDB.delete('transactions', t.id);
+                }
+              } else {
+                await localDB.delete('transactions', editingTransaction.id);
+              }
+              const installmentValue = data.value / data.installments;
+              const rawDate = (data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate
+                ? data.firstInstallmentDate
+                : data.date;
+              const baseDate = new Date(String(rawDate).slice(0, 10) + 'T12:00:00Z');
+              const groupId = editingTransaction.groupId || Math.random().toString(36).substr(2, 9);
+              
+              const arr = [];
+              for (let i = 0; i < data.installments; i++) {
+                 const installmentDate = addMonths(baseDate, i);
+                 const installmentNum = (i + 1).toString().padStart(2, '0');
+                 const totalInstallments = data.installments.toString().padStart(2, '0');
+                 arr.push({
+                     ...basePayload,
+                     value: installmentValue,
+                     date: toDbDate(format(installmentDate, 'yyyy-MM-dd'))!,
+                     description: `${finalEntityName} (${installmentNum}/${totalInstallments})`,
+                     status: isCreditCard ? 'pago' : (i === 0 ? data.status : 'a_pagar'),
+                     groupId,
+                     currentInstallment: i + 1,
+                     createdAt: editingTransaction.createdAt
+                 });
+              }
+              await localDB.saveMany('transactions', arr);
+            } else {
+              await localDB.save('transactions', {
+                ...basePayload,
+                id: editingTransaction.id,
+                date: toDbDate(data.date),
+                renewalDate: toDbDate(data.renewalDate),
+                value: data.value,
+              });
+            }
+          } else if (hasInstallments) {
+            const installmentValue = data.value / data.installments;
+            const rawDate = (data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate
+              ? data.firstInstallmentDate
+              : data.date;
+
+            const baseDate = new Date(String(rawDate).slice(0, 10) + 'T12:00:00Z');
+            const startDate = baseDate;
+            const groupId = Math.random().toString(36).substr(2, 9);
+            
+            const arr = [];
+            for (let i = 0; i < data.installments; i++) {
+              const installmentDate = addMonths(startDate, i);
+              const installmentNum = (i + 1).toString().padStart(2, '0');
+              const totalInstallments = data.installments.toString().padStart(2, '0');
+              
+              arr.push({
+                ...basePayload,
+                value: installmentValue,
+                date: toDbDate(format(installmentDate, 'yyyy-MM-dd'))!,
+                description: `${finalEntityName} (${installmentNum}/${totalInstallments})`,
+                installments: data.installments,
+                currentInstallment: i + 1,
+                groupId,
+                status: isCreditCard ? 'pago' : (i === 0 ? data.status : 'a_pagar'),
+              });
+            }
+            await localDB.saveMany('transactions', arr);
+          } else {
+            await localDB.save('transactions', {
+              ...basePayload,
+              date: toDbDate(data.date),
+              renewalDate: toDbDate(data.renewalDate),
+            });
+          }
+          triggerRefresh();
+        } catch (error) {
+          console.error('Erro no salvamento em background:', error);
+          alert('Houve um erro ao salvar o lançamento no servidor. A tela será recarregada.');
+          triggerRefresh();
+        }
+      })();
+
+    } catch (error: any) {
       console.error('Error saving transaction:', error);
+      alert('Erro ao salvar: ' + (error.message || 'Desconhecido'));
     } finally {
       setLoading(false);
     }
+  };
+
+  const onFormError = (errors: any) => {
+    console.error("Form Errors:", errors);
+    const errorMessages = Object.values(errors).map((e: any) => e.message).join('\n');
+    alert("Não foi possível salvar pois há campos inválidos:\n\n" + errorMessages + "\n\nPor favor, role a tela para cima e verifique os campos obrigatórios.");
   };
 
   const handleImport = async () => {
@@ -461,6 +691,9 @@ function TransactionsContent() {
     try {
       await localDB.delete('transactions', deleteConfirmId);
       triggerRefresh();
+      if (editingTransaction && editingTransaction.id === deleteConfirmId) {
+        closeModal();
+      }
       setDeleteConfirmId(null);
     } catch (error) {
       console.error('Error deleting transaction:', error);
@@ -479,20 +712,87 @@ function TransactionsContent() {
       return format(d, 'yyyy-MM-dd');
     };
 
+    const safeTx = Object.fromEntries(
+      Object.entries(transaction).map(([k, v]) => [k, v === null ? undefined : v])
+    );
+
+    // Load shared split state if exists
+    if (safeTx.sharedSplit) {
+      try {
+        const parsed = JSON.parse(safeTx.sharedSplit as string);
+        if (typeof parsed === 'object' && parsed !== null) {
+          // Scale split values back to total (multiply by installments)
+          const installCount = Number(safeTx.installments || 1);
+          
+          let othersTotal = 0;
+          let scaledSplit: Record<string, number> = {};
+          
+          if (installCount > 1) {
+            Object.entries(parsed).forEach(([k, v]) => { 
+              scaledSplit[k] = Number(v) * installCount; 
+              othersTotal += scaledSplit[k];
+            });
+            setSharedSplitState(scaledSplit);
+          } else {
+            scaledSplit = parsed as Record<string, number>;
+            setSharedSplitState(scaledSplit);
+            othersTotal = Object.values(scaledSplit).reduce((a, b) => a + b, 0);
+          }
+          
+          // Determine iParticipate by checking if sum of others equals total value
+          const totalVal = Number(safeTx.installments || 1) > 1 ? Number(safeTx.value) * Number(safeTx.installments) : Number(safeTx.value);
+          setIParticipate(Math.abs(othersTotal - totalVal) > 0.05); // If there's a remainder, user participates
+        } else {
+          setSharedSplitState({});
+          setIParticipate(true);
+        }
+      } catch { 
+        setSharedSplitState({}); 
+        setIParticipate(true);
+      }
+    } else if (safeTx.isShared && safeTx.sharedWith) {
+      // Auto-calculate equal split for old data without sharedSplit
+      const totalValue = Number(safeTx.installments || 1) > 1 ? Number(safeTx.value) * Number(safeTx.installments) : Number(safeTx.value);
+      const people = String(safeTx.sharedWith).split(',').map((p: string) => p.trim()).filter(Boolean);
+      const totalPeople = people.length + 1;
+      const perPerson = Math.round((totalValue / totalPeople) * 100) / 100;
+      const newSplit: Record<string, number> = {};
+      people.forEach((p: string) => { newSplit[p] = perPerson; });
+      setSharedSplitState(newSplit);
+      setIParticipate(true);
+    } else {
+      setSharedSplitState({});
+      setIParticipate(true);
+    }
+
+    // Strip installment numbering from entityName (e.g. "SHOPEE (01/03)" → "SHOPEE")
+    let cleanEntityName = safeTx.entityName;
+    if (Number(safeTx.installments || 1) > 1 && typeof cleanEntityName === 'string') {
+      cleanEntityName = cleanEntityName.replace(/\s*\(\d+\/\d+\)\s*$/, '').trim();
+    }
+
     reset({
-      ...transaction,
-      date: getDateString(transaction.date),
-      renewalDate: transaction.renewalDate ? getDateString(transaction.renewalDate) : undefined,
-      firstInstallmentDate: transaction.firstInstallmentDate ? getDateString(transaction.firstInstallmentDate) : undefined,
-      isShared: !!transaction.sharedWith,
-    });
+      type: 'despesa',
+      status: 'a_pagar',
+      paymentMethod: 'pix',
+      recurrent: false,
+      ...safeTx,
+      sharedWith: safeTx.sharedWith,
+      entityName: cleanEntityName,
+      value: Number(safeTx.installments || 1) > 1 ? Number(safeTx.value) * Number(safeTx.installments) : safeTx.value,
+      date: getDateString(safeTx.date),
+      renewalDate: safeTx.renewalDate ? getDateString(safeTx.renewalDate) : undefined,
+      firstInstallmentDate: safeTx.firstInstallmentDate ? getDateString(safeTx.firstInstallmentDate) : undefined,
+      isShared: !!safeTx.sharedWith,
+      installments: Number(safeTx.installments || 1),
+    } as any);
     setIsModalOpen(true);
   }, [reset]);
 
   useEffect(() => {
     const editId = searchParams.get('edit');
-    if (editId && transactions.length > 0 && !editingTransaction && !isModalOpen) {
-      const tx = transactions.find((t: any) => t.id === editId);
+    if (editId && allTransactions.length > 0 && !editingTransaction && !isModalOpen) {
+      const tx = allTransactions.find((t: any) => t.id === editId);
       if (tx) {
         handleEdit(tx);
       }
@@ -596,18 +896,11 @@ function TransactionsContent() {
                           (t.status || '').toLowerCase().includes(searchLower) ||
                           (t.value || '').toString().includes(searchLower);
     const matchesType = filterType === 'todos' || t.type === filterType;
-    return matchesSearch && matchesType;
+    const matchesCategory = filterCategory === 'todas' || t.category === filterCategory;
+    const matchesStatus = filterStatus === 'todos' || t.status === filterStatus;
+    
+    return matchesSearch && matchesType && matchesCategory && matchesStatus;
   });
-
-  const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage);
-  const paginatedTransactions = filteredTransactions.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, filterType]);
 
   if (!isAuthReady || !user) return null;
 
@@ -640,9 +933,9 @@ function TransactionsContent() {
             <h2 className="text-3xl font-black tracking-tight text-on-surface">Lançamentos</h2>
             <p className="text-on-surface-variant font-medium mt-1">Gerencie suas receitas e despesas com precisão.</p>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="hidden md:flex items-center gap-2 bg-surface-container-high p-1.5 rounded-2xl shadow-inner">
-              <div className="flex items-center gap-2 px-2">
+          <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
+            <div className="flex items-center gap-2 bg-surface-container-high p-1.5 rounded-2xl shadow-inner w-full sm:w-auto overflow-x-auto">
+              <div className="flex items-center gap-2 px-2 w-full justify-between sm:justify-start">
                 <select 
                   value={getYear(selectedMonth)}
                   onChange={(e) => setSelectedMonth(setYear(selectedMonth, parseInt(e.target.value)))}
@@ -669,7 +962,7 @@ function TransactionsContent() {
                 reset();
                 setIsModalOpen(true);
               }}
-              className={cn("px-6 py-3 rounded-2xl text-white font-black flex items-center gap-2 shadow-lg active:scale-95 transition-all", themeBg)}
+              className={cn("w-full sm:w-auto justify-center px-6 py-3 rounded-2xl text-white font-black flex items-center gap-2 shadow-lg active:scale-95 transition-all", themeBg)}
             >
               <Plus size={20} />
               Novo Lançamento
@@ -691,6 +984,28 @@ function TransactionsContent() {
           </div>
 
           <div className="flex items-center gap-2 w-full lg:w-auto overflow-x-auto pb-2 lg:pb-0">
+            <select
+              value={filterCategory}
+              onChange={(e) => setFilterCategory(e.target.value)}
+              className="bg-surface-container-high border-none rounded-xl px-4 py-2 text-xs font-bold focus:ring-0 text-on-surface-variant min-w-[120px]"
+            >
+              <option value="todas">Categorias</option>
+              {categories.map(c => (
+                <option key={c.id} value={c.name}>{c.name}</option>
+              ))}
+            </select>
+            
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="bg-surface-container-high border-none rounded-xl px-4 py-2 text-xs font-bold focus:ring-0 text-on-surface-variant min-w-[120px]"
+            >
+              <option value="todos">Status</option>
+              <option value="pago">Pago / Recebido</option>
+              <option value="pendente">Pendente</option>
+              <option value="atrasado">Atrasado</option>
+            </select>
+
             <button
               onClick={() => setFilterType('todos')}
               className={cn(
@@ -734,17 +1049,17 @@ function TransactionsContent() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-surface-container-low border-b border-outline-variant/20">
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Data</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Entidade / Descrição</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Categoria</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Status</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Valor</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant text-right">Ações</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant whitespace-nowrap">Data</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant whitespace-nowrap">Entidade / Descrição</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant whitespace-nowrap">Categoria</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant whitespace-nowrap">Status</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant whitespace-nowrap">Valor</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant text-right whitespace-nowrap">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant/10">
-                {paginatedTransactions.length > 0 ? (
-                  paginatedTransactions.map((t) => (
+                {filteredTransactions.length > 0 ? (
+                  filteredTransactions.map((t) => (
                     <tr key={t.id} className="hover:bg-surface-container-low/50 transition-colors group">
                       <td className="px-6 py-5">
                         <p className="text-sm font-bold text-on-surface">{format(parseLocalDate(t.date), 'dd/MM/yyyy')}</p>
@@ -759,7 +1074,14 @@ function TransactionsContent() {
                             {t.type === 'receita' ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
                           </div>
                           <div>
-                            <p className="text-sm font-bold text-on-surface">{t.entityName}</p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-bold text-on-surface">{t.entityName}</p>
+                              {t.currentInstallment && t.installments > 1 && (
+                                <span className="text-[9px] font-black bg-surface-container-highest px-2 py-0.5 rounded-full text-on-surface-variant whitespace-nowrap">
+                                  {t.currentInstallment}/{t.installments}
+                                </span>
+                              )}
+                            </div>
                             <p className="text-xs text-on-surface-variant font-medium truncate max-w-[200px]">{t.description || '-'}</p>
                             {t.sharedWith && (
                               <p className="text-[10px] text-primary font-bold mt-1">
@@ -791,9 +1113,9 @@ function TransactionsContent() {
                           <option value="atrasado">Atrasado</option>
                         </select>
                       </td>
-                      <td className="px-6 py-5">
+                      <td className="px-6 py-5 whitespace-nowrap">
                         <p className={cn("text-sm font-black", t.type === 'receita' ? "text-success" : "text-error")}>
-                          {t.type === 'receita' ? '+' : '-'} {formatCurrency(t.value)}
+                          {t.type === 'receita' ? '+' : '-'} {formatCurrency(t.userPortion !== undefined ? t.userPortion : t.value)}
                         </p>
                         <p className="text-[10px] font-bold text-on-surface-variant uppercase">{t.paymentMethod.replace('_', ' ')}</p>
                       </td>
@@ -805,12 +1127,14 @@ function TransactionsContent() {
                           >
                             <Edit2 size={16} />
                           </button>
-                          <button 
-                            onClick={() => handleDelete(t.id)}
-                            className="p-2 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-all"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          {(isAdmin || isFinanceiro) && (
+                            <button 
+                              onClick={() => handleDelete(t.id)}
+                              className="p-2 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-all"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -829,51 +1153,10 @@ function TransactionsContent() {
             </table>
           </div>
           
-          {/* Pagination */}
           <div className="px-6 py-4 bg-surface-container-low border-t border-outline-variant/20 flex items-center justify-between">
             <p className="text-xs font-bold text-on-surface-variant">
-              Mostrando <span className="text-on-surface">{paginatedTransactions.length}</span> de <span className="text-on-surface">{filteredTransactions.length}</span> resultados
+              Mostrando <span className="text-on-surface">{filteredTransactions.length}</span> resultados
             </p>
-            <div className="flex items-center gap-2">
-              <button 
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-                className="p-2 rounded-lg hover:bg-surface-container-high text-on-surface-variant disabled:opacity-30 transition-all"
-              >
-                <ChevronLeft size={20} />
-              </button>
-              <div className="flex items-center gap-1">
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  let pageNum = i + 1;
-                  if (totalPages > 5 && currentPage > 3) {
-                    pageNum = currentPage - 3 + i + 1;
-                    if (pageNum > totalPages) pageNum = totalPages - (4 - i);
-                  }
-                  if (pageNum <= 0) return null;
-                  if (pageNum > totalPages) return null;
-
-                  return (
-                    <button
-                      key={pageNum}
-                      onClick={() => setCurrentPage(pageNum)}
-                      className={cn(
-                        "w-8 h-8 rounded-lg text-xs font-bold transition-all",
-                        currentPage === pageNum ? themeBg + " text-white shadow-md" : "hover:bg-surface-container-high text-on-surface-variant"
-                      )}
-                    >
-                      {pageNum}
-                    </button>
-                  );
-                })}
-              </div>
-              <button 
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={currentPage === totalPages || totalPages === 0}
-                className="p-2 rounded-lg hover:bg-surface-container-high text-on-surface-variant disabled:opacity-30 transition-all"
-              >
-                <ChevronRight size={20} />
-              </button>
-            </div>
           </div>
         </div>
 
@@ -893,7 +1176,7 @@ function TransactionsContent() {
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
               className="relative bg-surface-container-lowest w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
             >
-              <div className="p-6 border-b border-outline-variant/20 flex items-center justify-between">
+              <div className="p-4 md:p-6 border-b border-outline-variant/20 flex items-center justify-between">
                 <div>
                   <h3 className="text-xl font-black text-on-surface">
                     {isImporting ? 'Importar Extrato' : (editingTransaction ? 'Editar Lançamento' : 'Novo Lançamento')}
@@ -977,7 +1260,7 @@ function TransactionsContent() {
                   )}
                 </div>
               ) : (
-                <form onSubmit={handleSubmit(onSubmit)} className="flex-1 overflow-y-auto p-8 space-y-8">
+                <form onSubmit={handleSubmit(onSubmit, onFormError)} className="space-y-6 p-4 md:p-6 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 160px)' }}>
                 {/* Type Toggle */}
                 <div className="flex bg-surface-container-high p-1 rounded-2xl">
                   <button
@@ -1005,14 +1288,24 @@ function TransactionsContent() {
                 </div>
 
                 {!editingTransaction && (
-                  <button
-                    type="button"
-                    onClick={loadPreviousMonthTransactions}
-                    className="w-full py-2 bg-surface-container-highest text-on-surface-variant text-xs font-black uppercase tracking-widest rounded-xl hover:bg-outline-variant/20 transition-all flex items-center justify-center gap-2"
-                  >
-                    <RefreshCw size={14} />
-                    Puxar do mês anterior
-                  </button>
+                  <div className="flex gap-2 flex-wrap sm:flex-nowrap">
+                    <button
+                      type="button"
+                      onClick={loadPreviousMonthTransactions}
+                      className="flex-1 py-2 px-3 bg-surface-container-highest text-on-surface-variant text-[10px] font-black uppercase tracking-wider rounded-xl hover:bg-outline-variant/20 transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <RefreshCw size={12} />
+                      Puxar Mês Anterior
+                    </button>
+                    <button
+                      type="button"
+                      onClick={pullRecurringFromPrevious}
+                      className="flex-1 py-2 px-3 bg-primary/10 text-primary text-[10px] font-black uppercase tracking-wider rounded-xl hover:bg-primary/20 transition-all flex items-center justify-center gap-1.5 border border-primary/20"
+                    >
+                      <RefreshCw size={12} />
+                      Puxar Recorrentes
+                    </button>
+                  </div>
                 )}
 
                 {isPreviousMonthSearchOpen && (
@@ -1176,22 +1469,24 @@ function TransactionsContent() {
                     </div>
                   )}
 
+                  {['cartao_credito', 'cartao_debito'].includes(paymentMethod) && (
+                    <div className="space-y-2">
+                      <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Cartão</label>
+                      <select
+                        {...register('cardId')}
+                        className="w-full px-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20"
+                      >
+                        <option value="">Selecione o cartão...</option>
+                        {cards.map(c => (
+                          <option key={c.id} value={c.id}>{c.name} ({c.bank})</option>
+                        ))}
+                      </select>
+                      {errors.cardId && <p className="text-[10px] text-error font-bold ml-1">{errors.cardId.message}</p>}
+                    </div>
+                  )}
+
                   {(paymentMethod === 'cartao_credito' || (paymentMethod === 'financiamento' && isInstallment)) && (
                     <>
-                      {paymentMethod === 'cartao_credito' && (
-                        <div className="space-y-2">
-                          <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Cartão</label>
-                          <select
-                            {...register('cardId')}
-                            className="w-full px-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20"
-                          >
-                            <option value="">Selecione o cartão...</option>
-                            {cards.map(c => (
-                              <option key={c.id} value={c.id}>{c.name} ({c.bank})</option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
                       <div className="space-y-2">
                         <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Parcelas</label>
                         <input
@@ -1201,6 +1496,7 @@ function TransactionsContent() {
                           className="w-full px-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20"
                         />
                         <p className="text-[10px] text-on-surface-variant font-medium ml-1">O valor total será dividido em {watch('installments')} meses.</p>
+                        {errors.installments && <p className="text-[10px] text-error font-bold ml-1">{errors.installments.message}</p>}
                       </div>
 
                       {(paymentMethod === 'financiamento' || paymentMethod === 'cartao_credito') && (
@@ -1327,21 +1623,126 @@ function TransactionsContent() {
                     </div>
                     
                     {watch('isShared') && (
-                      <div className="space-y-2 pl-8">
-                        <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Nomes das pessoas (separados por vírgula)</label>
-                        <input
-                          type="text"
-                          list="shared-people-list"
-                          {...register('sharedWith')}
-                          placeholder="Ex: Maria, João..."
-                          className="w-full px-4 py-3 bg-surface border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20"
-                        />
-                        <datalist id="shared-people-list">
-                          {sharedPeople.map((person, idx) => (
-                            <option key={idx} value={person} />
-                          ))}
-                        </datalist>
-                        <p className="text-[10px] text-on-surface-variant font-medium ml-1">Nomes das pessoas que dividem esta conta com você.</p>
+                      <div className="space-y-4 pl-8">
+                        <div className="space-y-2">
+                          <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Nomes das pessoas (separados por vírgula)</label>
+                          <input
+                            type="text"
+                            list="shared-people-list"
+                            {...register('sharedWith')}
+                            placeholder="Ex: Maria, João..."
+                            className="w-full px-4 py-3 bg-surface border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20"
+                          />
+                          <datalist id="shared-people-list">
+                            {sharedPeople.map((person, idx) => (
+                              <option key={idx} value={person} />
+                            ))}
+                          </datalist>
+                        </div>
+
+                        {/* Divisão por Pessoa */}
+                        {watchedSharedWith && watchedSharedWith.split(',').filter((p: string) => p.trim()).length > 0 && watchedValue > 0 && (
+                          <div className="space-y-4 p-4 bg-surface rounded-xl border border-outline-variant/20">
+                            <div className="flex items-center justify-between">
+                              <div className="flex flex-col gap-1">
+                                <p className="text-xs font-black uppercase tracking-widest text-on-surface-variant">Divisão por Pessoa</p>
+                                <label className="flex items-center gap-2 cursor-pointer mt-1">
+                                  <input 
+                                    type="checkbox" 
+                                    checked={iParticipate}
+                                    onChange={(e) => {
+                                      setIParticipate(e.target.checked);
+                                      const people = (watchedSharedWith || '').split(',').map((p: string) => p.trim()).filter(Boolean);
+                                      const totalPeople = e.target.checked ? people.length + 1 : people.length;
+                                      const perPerson = Math.round((watchedValue / totalPeople) * 100) / 100;
+                                      const newSplit: Record<string, number> = {};
+                                      people.forEach((p: string) => { newSplit[p] = perPerson; });
+                                      setSharedSplitState(newSplit);
+                                    }}
+                                    className="w-4 h-4 rounded border-outline text-primary focus:ring-primary/20"
+                                  />
+                                  <span className="text-[10px] font-bold text-on-surface-variant">Eu participo dessa divisão</span>
+                                </label>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const people = (watchedSharedWith || '').split(',').map((p: string) => p.trim()).filter(Boolean);
+                                  const totalPeople = iParticipate ? people.length + 1 : people.length;
+                                  const perPerson = Math.round((watchedValue / totalPeople) * 100) / 100;
+                                  const newSplit: Record<string, number> = {};
+                                  people.forEach((p: string) => { newSplit[p] = perPerson; });
+                                  setSharedSplitState(newSplit);
+                                }}
+                                className="text-[10px] font-black text-primary hover:text-primary/80 uppercase tracking-widest transition-colors h-fit"
+                              >
+                                Dividir Igualmente
+                              </button>
+                            </div>
+                            
+                            {/* User's portion */}
+                            {(() => {
+                              const othersTotal = Object.values(sharedSplitState).reduce((sum, v) => sum + v, 0);
+                              const myPortion = Math.round((watchedValue - othersTotal) * 100) / 100;
+                              return (
+                                <div className={cn("flex items-center gap-3 py-2 border-b border-outline-variant/10", !iParticipate && "opacity-50 grayscale")}>
+                                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                                    <span className="text-xs font-black text-primary">EU</span>
+                                  </div>
+                                  <div className="flex-1">
+                                    <p className="text-sm font-bold text-on-surface">Você</p>
+                                    <p className="text-[10px] text-on-surface-variant">{watchedValue > 0 ? Math.round((myPortion / watchedValue) * 100) : 0}% do total</p>
+                                  </div>
+                                  <p className={cn("text-sm font-black", myPortion >= 0 ? "text-on-surface" : "text-error")}>
+                                    R$ {myPortion.toFixed(2)}
+                                  </p>
+                                </div>
+                              );
+                            })()}
+                            
+                            {/* Other people */}
+                            {(watchedSharedWith || '').split(',').map((p: string) => p.trim()).filter(Boolean).map((person: string, idx: number) => {
+                              const personValue = sharedSplitState[person] || 0;
+                              return (
+                                <div key={idx} className="flex items-center gap-3 py-2 border-b border-outline-variant/10 last:border-0">
+                                  <div className="w-8 h-8 rounded-full bg-surface-container-highest flex items-center justify-center">
+                                    <span className="text-xs font-black text-on-surface-variant">{person.charAt(0).toUpperCase()}</span>
+                                  </div>
+                                  <div className="flex-1">
+                                    <p className="text-sm font-bold text-on-surface">{person}</p>
+                                    <p className="text-[10px] text-on-surface-variant">{watchedValue > 0 ? Math.round((personValue / watchedValue) * 100) : 0}% do total</p>
+                                  </div>
+                                  <div className="relative w-28">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-on-surface-variant">R$</span>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      value={personValue || ''}
+                                      onChange={(e) => {
+                                        const newVal = parseFloat(e.target.value) || 0;
+                                        setSharedSplitState(prev => ({ ...prev, [person]: newVal }));
+                                      }}
+                                      className="w-full pl-9 pr-2 py-2 bg-surface-container-high border-none rounded-lg text-sm font-bold text-right focus:ring-2 focus:ring-primary/20"
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            
+                            {/* Validation */}
+                            {(() => {
+                              const othersTotal = Object.values(sharedSplitState).reduce((sum, v) => sum + v, 0);
+                              const isValid = Math.abs(othersTotal - watchedValue) < watchedValue; // Must not exceed total
+                              return (
+                                <div className={cn("flex items-center justify-between pt-2 text-xs font-bold", isValid ? "text-on-surface-variant" : "text-error")}>
+                                  <span>Soma dos outros: R$ {othersTotal.toFixed(2)}</span>
+                                  <span>Seu valor: R$ {(watchedValue - othersTotal).toFixed(2)}</span>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1360,13 +1761,24 @@ function TransactionsContent() {
                 )}
 
                 <div className="pt-4 flex gap-4">
-                  <button
-                    type="button"
-                    onClick={closeModal}
-                    className="flex-1 py-4 bg-surface-container-high text-on-surface font-black rounded-2xl hover:bg-outline-variant/20 transition-all"
-                  >
-                    Cancelar
-                  </button>
+                  {editingTransaction ? (
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(editingTransaction.id)}
+                      className="flex-shrink-0 px-6 py-4 bg-error/10 text-error font-black rounded-2xl hover:bg-error/20 transition-all"
+                      title="Excluir"
+                    >
+                      Excluir
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={closeModal}
+                      className="flex-shrink-0 px-6 py-4 bg-surface-container-high text-on-surface font-black rounded-2xl hover:bg-outline-variant/20 transition-all"
+                    >
+                      Cancelar
+                    </button>
+                  )}
                   <button
                     type="submit"
                     disabled={loading}

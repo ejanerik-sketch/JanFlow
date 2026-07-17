@@ -22,40 +22,111 @@ const convertKeysToCamelCase = (obj: any) => {
   return newObj;
 };
 
-// Supabase Database Utility
+const apiCall = async (action: string, payload: any) => {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token || '';
+
+  const res = await fetch('/api/db', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({ action, ...payload })
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json();
+    throw new Error(errorData.error || `Error in DB action: ${action}`);
+  }
+
+  return res.json();
+};
+
+// Supabase Database Utility via API Proxy
 export const localDB = {
+  // Retorna os dados do cache de forma instantânea (síncrona se rodar no cliente)
+  getCached: (
+    collection: string,
+    uid: string,
+    context?: string,
+    options?: { from?: string; to?: string; dateColumn?: string }
+  ) => {
+    if (typeof window === 'undefined') return [];
+    
+    // Constrói a chave de cache única
+    const cacheKey = `janflow_cache_v3_${collection}_${context || 'all'}_${options?.from || 'any'}_${options?.to || 'any'}`;
+    const cachedData = localStorage.getItem(cacheKey);
+    
+    if (cachedData) {
+      try {
+        return JSON.parse(cachedData);
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
+  },
+
   get: async (
     collection: string,
     uid: string,
     context?: string,
     options?: { from?: string; to?: string; dateColumn?: string }
   ) => {
-    let query = supabase.from(collection).select('*').eq('user_id', uid);
-
-    if (context) {
-      query = query.eq('context', context);
-    }
-
-    // Filtro de intervalo de datas direto no banco (evita puxar tudo e filtrar
-    // no navegador). Usado, por ex., para carregar só o mês selecionado.
-    if (options?.from && options?.to) {
-      const col = options.dateColumn || 'date';
-      query = query.gte(col, options.from).lte(col, options.to);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
+    try {
+      const result = await apiCall('get', { collection, uid, context, options });
+      const parsedData = (result.data || []).map(convertKeysToCamelCase);
+      
+      // Salva no cache local para a próxima vez ser instantâneo
+      if (typeof window !== 'undefined') {
+        const cacheKey = `janflow_cache_v3_${collection}_${context || 'all'}_${options?.from || 'any'}_${options?.to || 'any'}`;
+        localStorage.setItem(cacheKey, JSON.stringify(parsedData));
+      }
+      
+      return parsedData;
+    } catch (error) {
       console.error(`Error fetching ${collection}:`, error);
-      return [];
+      // Fallback para cache em caso de erro na rede
+      return localDB.getCached(collection, uid, context, options);
     }
-
-    return (data || []).map(convertKeysToCamelCase);
   },
 
-  // Insere vários registros de uma vez (1 round-trip). Usado no seed de
-  // categorias padrão, que antes fazia ~40 inserts sequenciais e travava o
-  // primeiro carregamento.
+  getBatch: async (
+    requests: Array<{
+      collection: string;
+      context?: string;
+      options?: { from?: string; to?: string; dateColumn?: string };
+    }>,
+    uid: string
+  ) => {
+    try {
+      const result = await apiCall('batch', { requests });
+      const results = result.results || [];
+      
+      return results.map((res: any) => {
+        if (!res.success) {
+          throw new Error(res.error || `Error in batch request for ${res.collection}`);
+        }
+        const parsedData = (res.data || []).map(convertKeysToCamelCase);
+        
+        // Salva no cache local para a próxima vez ser instantâneo
+        if (typeof window !== 'undefined') {
+          const cacheKey = `janflow_cache_${res.collection}_${res.context || 'all'}_${res.options?.from || 'any'}_${res.options?.to || 'any'}`;
+          localStorage.setItem(cacheKey, JSON.stringify(parsedData));
+        }
+        
+        return parsedData;
+      });
+    } catch (error) {
+      console.error('Error fetching batch database actions:', error);
+      // Fallback para cache individual
+      return requests.map((req) => 
+        localDB.getCached(req.collection, uid, req.context, req.options)
+      );
+    }
+  },
+
   saveMany: async (collection: string, items: any[]) => {
     if (!items || items.length === 0) return [];
 
@@ -70,65 +141,37 @@ export const localDB = {
       return rest;
     });
 
-    const { data, error } = await supabase.from(collection).insert(payload).select();
-
-    if (error) {
+    try {
+      const result = await apiCall('saveMany', { collection, payload });
+      return (result.data || []).map(convertKeysToCamelCase);
+    } catch (error) {
       console.error(`Error bulk inserting ${collection}:`, error);
       throw error;
     }
-
-    return (data || []).map(convertKeysToCamelCase);
   },
 
   save: async (collection: string, item: any) => {
-    // Ensure user_id is set (mapping from uid)
     const payload = { ...item };
     if (payload.uid) {
       payload.user_id = payload.uid;
       delete payload.uid;
     }
 
-    // Convert keys to snake_case for Supabase
     const dbPayload = convertKeysToSnakeCase(payload);
 
-    if (dbPayload.id) {
-      const { id, ...updatePayload } = dbPayload;
-      const { data, error } = await supabase
-        .from(collection)
-        .update(updatePayload)
-        .eq('id', id)
-        .select()
-        .single();
-        
-      if (error) {
-        console.error(`Error updating ${collection}:`, error);
-        throw error;
-      }
-      return convertKeysToCamelCase(data);
-    } else {
-      // Remove id if it's undefined to avoid Supabase errors
-      const { id, ...insertPayload } = dbPayload;
-      const { data, error } = await supabase
-        .from(collection)
-        .insert([insertPayload])
-        .select()
-        .single();
-        
-      if (error) {
-        console.error(`Error inserting ${collection}:`, error);
-        throw error;
-      }
-      return convertKeysToCamelCase(data);
+    try {
+      const result = await apiCall('save', { collection, payload: dbPayload });
+      return convertKeysToCamelCase(result.data);
+    } catch (error) {
+      console.error(`Error saving ${collection}:`, error);
+      throw error;
     }
   },
   
   delete: async (collection: string, id: string) => {
-    const { error } = await supabase
-      .from(collection)
-      .delete()
-      .eq('id', id);
-      
-    if (error) {
+    try {
+      await apiCall('delete', { collection, id });
+    } catch (error) {
       console.error(`Error deleting ${collection}:`, error);
       throw error;
     }

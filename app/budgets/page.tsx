@@ -37,7 +37,7 @@ type BudgetFormValues = z.infer<typeof budgetSchema>;
 
 export default function BudgetsPage() {
   const router = useRouter();
-  const { user, isAuthReady, context } = useAppContext();
+  const { user, isAuthReady, context, isAdmin, isFinanceiro } = useAppContext();
   const [budgets, setBudgets] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
@@ -66,9 +66,26 @@ export default function BudgetsPage() {
     if (!user) return;
 
     const loadData = async () => {
+      const from = format(startOfMonth(new Date()), 'yyyy-MM-dd');
+      const to = format(endOfMonth(new Date()), 'yyyy-MM-dd');
+
+      // 1. Cache Instantâneo
+      const cachedBudgets = localDB.getCached('budgets', user.uid, context);
+      const cachedTransactions = localDB.getCached('transactions', user.uid, context, { from, to });
+      const cachedCategories = localDB.getCached('categories', user.uid, context);
+      
+      if (cachedBudgets.length > 0 || cachedTransactions.length > 0) {
+        setBudgets(cachedBudgets);
+        setTransactions(cachedTransactions);
+        if (cachedCategories.length > 0) {
+          setCategories(cachedCategories);
+        }
+      }
+
+      // 2. Busca Atualizada
       const [b, t, c] = await Promise.all([
         localDB.get('budgets', user.uid, context),
-        localDB.get('transactions', user.uid, context),
+        localDB.get('transactions', user.uid, context, { from, to }),
         localDB.get('categories', user.uid, context),
       ]);
 
@@ -137,34 +154,56 @@ export default function BudgetsPage() {
   const onSubmit = async (data: BudgetFormValues) => {
     if (!user) return;
     setLoading(true);
-    try {
-      const { description, ...restData } = data;
-      const budgetData = {
-        ...restData,
-        uid: user.uid,
-        context: context,
-        month: format(new Date(), 'yyyy-MM'),
-        id: editingBudget?.id || undefined,
-        createdAt: new Date().toISOString(),
-      };
-      
-      await localDB.save('budgets', budgetData);
-      triggerRefresh();
-      setIsModalOpen(false);
-      setEditingBudget(null);
-      reset();
-    } catch (error) {
-      console.error('Error saving budget:', error);
-    } finally {
-      setLoading(false);
-    }
+    
+    const { description, ...restData } = data;
+    const budgetData = {
+      ...restData,
+      uid: user.uid,
+      context: context,
+      month: format(new Date(), 'yyyy-MM'),
+      id: editingBudget?.id || 'temp_' + Date.now(),
+      createdAt: new Date().toISOString(),
+    };
+    
+    // Otimista
+    setBudgets(prev => {
+      if (editingBudget) return prev.map(b => b.id === budgetData.id ? budgetData : b);
+      return [budgetData, ...prev];
+    });
+
+    setIsModalOpen(false);
+    setEditingBudget(null);
+    reset();
+    setLoading(false);
+
+    (async () => {
+      try {
+        await localDB.save('budgets', budgetData);
+        triggerRefresh();
+      } catch (error) {
+        console.error('Error saving budget:', error);
+        triggerRefresh();
+      }
+    })();
   };
 
   const confirmDelete = async () => {
     if (budgetToDelete) {
-      await localDB.delete('budgets', budgetToDelete);
-      triggerRefresh();
+      const idToDelete = budgetToDelete;
+      
+      // Otimista
+      setBudgets(prev => prev.filter(b => b.id !== idToDelete));
       setBudgetToDelete(null);
+
+      (async () => {
+        try {
+          await localDB.delete('budgets', idToDelete);
+          triggerRefresh();
+        } catch (error) {
+          console.error(error);
+          triggerRefresh();
+        }
+      })();
     }
   };
 
@@ -247,9 +286,11 @@ export default function BudgetsPage() {
                     <button onClick={() => handleEdit(budget)} className="p-2 text-on-surface-variant hover:text-primary transition-colors">
                       <Edit2 size={16} />
                     </button>
-                    <button onClick={() => setBudgetToDelete(budget.id)} className="p-2 text-on-surface-variant hover:text-error transition-colors">
-                      <Trash2 size={16} />
-                    </button>
+                    {(isAdmin || isFinanceiro) && (
+                      <button onClick={() => setBudgetToDelete(budget.id)} className="p-2 text-on-surface-variant hover:text-error transition-colors">
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                   </div>
                 </div>
 
