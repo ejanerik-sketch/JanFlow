@@ -48,8 +48,17 @@ export async function POST(req: Request) {
 
     // O trigger handle_new_user força role mínima ('analista') por segurança.
     // Aqui o admin define o role/photoURL corretos escolhidos na tela.
+    // Usamos um client autenticado com o token do admin atual para que a
+    // trigger prevent_role_escalation permita a alteração.
     if (data.user) {
-      const { error: profileError } = await adminClient
+      const authHeader = req.headers.get('authorization');
+      const token = authHeader?.split('Bearer ')[1];
+      const { createClient } = await import('@supabase/supabase-js');
+      const authClient = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+        global: { headers: { Authorization: `Bearer ${token}` } }
+      });
+      
+      const { error: profileError } = await authClient
         .from('profiles')
         .update({ role, photoURL })
         .eq('id', data.user.id);
