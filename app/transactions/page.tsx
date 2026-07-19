@@ -829,9 +829,15 @@ function TransactionsContent() {
   };
 
   const handleStatusChange = async (id: string, newStatus: string) => {
-    const transaction = transactions.find(t => t.id === id);
+    const transaction = allTransactions.find(t => t.id === id);
     if (transaction) {
-      await localDB.save('transactions', { ...transaction, status: newStatus });
+      const txToSave = { ...transaction, status: newStatus };
+      delete txToSave.userPortion;
+      
+      setTransactions(prev => prev.map(t => t.id === id ? { ...t, status: newStatus } : t));
+      setAllTransactions(prev => prev.map(t => t.id === id ? { ...t, status: newStatus } : t));
+      
+      await localDB.save('transactions', txToSave);
       triggerRefresh();
     }
   };
@@ -897,7 +903,10 @@ function TransactionsContent() {
                           (t.value || '').toString().includes(searchLower);
     const matchesType = filterType === 'todos' || t.type === filterType;
     const matchesCategory = filterCategory === 'todas' || t.category === filterCategory;
-    const matchesStatus = filterStatus === 'todos' || t.status === filterStatus;
+    const matchesStatus = filterStatus === 'todos' || 
+                          (filterStatus === 'pago' && (t.status === 'pago' || t.status === 'recebido')) ||
+                          (filterStatus === 'pendente' && (t.status === 'a_pagar' || t.status === 'a_receber')) ||
+                          t.status === filterStatus;
     
     return matchesSearch && matchesType && matchesCategory && matchesStatus;
   });
@@ -1581,8 +1590,10 @@ function TransactionsContent() {
                         {...register('status')}
                         className="w-full px-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20"
                       >
-                        <option value="recebido">{transactionType === 'receita' ? 'Recebido' : 'Pago'}</option>
-                        <option value="a_receber">{transactionType === 'receita' ? 'A Receber' : 'A Pagar'}</option>
+                        <option value="recebido">Recebido</option>
+                        <option value="pago">Pago</option>
+                        <option value="a_receber">A Receber</option>
+                        <option value="a_pagar">A Pagar</option>
                         <option value="atrasado">Atrasado</option>
                       </select>
                     </div>
