@@ -57,6 +57,8 @@ const transactionSchema = z.object({
   isShared: z.boolean().optional(),
   sharedWith: z.string().optional(),
   sharedSplit: z.string().optional(),
+  recurrentYear: z.number().optional(),
+  recurrentMonths: z.array(z.number()).optional(),
 }).refine((data) => {
   if (['cartao_credito', 'cartao_debito'].includes(data.paymentMethod) && !data.cardId) {
     return false;
@@ -104,6 +106,8 @@ function TransactionsContent() {
 
   const triggerRefresh = () => setRefreshTrigger(prev => prev + 1);
 
+  const [recurrentMonthsTouched, setRecurrentMonthsTouched] = useState(false);
+
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<TransactionFormValues>({
     resolver: zodResolver(transactionSchema) as any,
     defaultValues: {
@@ -113,6 +117,8 @@ function TransactionsContent() {
       recurrent: false,
       installments: 1,
       date: format(new Date(), 'yyyy-MM-dd'),
+      recurrentYear: new Date().getFullYear(),
+      recurrentMonths: [new Date().getMonth()],
     }
   });
 
@@ -129,6 +135,9 @@ function TransactionsContent() {
   const watchedCardId = watch('cardId');
   const watchedIsShared = watch('isShared');
   const watchedSharedWith = watch('sharedWith');
+  const watchedRecurrent = watch('recurrent');
+  const watchedRecurrentYear = watch('recurrentYear');
+  const watchedRecurrentMonths = watch('recurrentMonths') || [];
 
   // Auto-calculate shared split when people or value changes
   useEffect(() => {
@@ -150,6 +159,17 @@ function TransactionsContent() {
     }
   }, [watchedIsShared, watchedSharedWith, watchedValue, iParticipate]);
 
+  // Synchronize year and month selector with selected transaction date
+  useEffect(() => {
+    if (watchedDate && !recurrentMonthsTouched) {
+      const parsedDate = parseLocalDate(watchedDate);
+      if (!isNaN(parsedDate.getTime())) {
+        setValue('recurrentYear', parsedDate.getFullYear());
+        setValue('recurrentMonths', [parsedDate.getMonth()]);
+      }
+    }
+  }, [watchedDate, setValue, recurrentMonthsTouched]);
+
   useEffect(() => {
     if (transactionType === 'receita' && !isBusiness && paymentMethod === 'cartao_credito') {
       setValue('paymentMethod', 'pix');
@@ -164,7 +184,9 @@ function TransactionsContent() {
 
     const allTrans = await localDB.get('transactions', user.uid, context);
     const filtered = allTrans.filter((t: any) => {
+      if (!t.date) return false;
       const tDate = parseLocalDate(t.date);
+      if (isNaN(tDate.getTime())) return false;
       return isWithinInterval(tDate, { start, end }) && t.type === transactionType;
     });
 
@@ -188,13 +210,17 @@ function TransactionsContent() {
       
       // Filter recurrent from previous month
       const prevRecurrent = allTrans.filter((t: any) => {
+        if (!t.date) return false;
         const tDate = parseLocalDate(t.date);
+        if (isNaN(tDate.getTime())) return false;
         return isWithinInterval(tDate, { start: startPrev, end: endPrev }) && t.recurrent;
       });
 
       // Filter recurrent already in current month (to prevent duplicates)
       const currRecurrent = allTrans.filter((t: any) => {
+        if (!t.date) return false;
         const tDate = parseLocalDate(t.date);
+        if (isNaN(tDate.getTime())) return false;
         return isWithinInterval(tDate, { start: startCurr, end: endCurr }) && t.recurrent;
       });
 
@@ -221,7 +247,7 @@ function TransactionsContent() {
           category: t.category,
           entityName: t.entityName,
           description: t.description || '',
-          value: t.value,
+          value: Number(t.value),
           observation: t.observation || '',
           paymentMethod: t.paymentMethod,
           cardId: t.cardId || null,
@@ -260,12 +286,21 @@ function TransactionsContent() {
     } else {
       setValue('entityName', t.entityName);
     }
-    setValue('value', t.value);
+    setValue('value', Number(t.value));
     setValue('category', t.category);
     setValue('paymentMethod', t.paymentMethod);
     if (t.cardId) setValue('cardId', t.cardId);
     setValue('description', t.description);
     setValue('recurrent', t.recurrent || false);
+    
+    if (t.recurrent) {
+      const parsedDate = parseLocalDate(t.date);
+      const yr = !isNaN(parsedDate.getTime()) ? parsedDate.getFullYear() : new Date().getFullYear();
+      const mn = !isNaN(parsedDate.getTime()) ? parsedDate.getMonth() : new Date().getMonth();
+      setValue('recurrentYear', yr);
+      setValue('recurrentMonths', [mn]);
+    }
+    
     setIsPreviousMonthSearchOpen(false);
   };
 
@@ -462,6 +497,7 @@ function TransactionsContent() {
     setIsModalOpen(false);
     setEditingTransaction(null);
     setSharedSplitState({});
+    setRecurrentMonthsTouched(false);
     reset();
     if (searchParams.toString()) {
       router.replace('/transactions');
@@ -626,6 +662,33 @@ function TransactionsContent() {
               });
             }
             await localDB.saveMany('transactions', arr);
+          } else if (data.recurrent && !editingTransaction) {
+            const year = data.recurrentYear || new Date(data.date).getFullYear();
+            const months = data.recurrentMonths || [];
+            
+            if (months.length === 0) {
+              await localDB.save('transactions', {
+                ...basePayload,
+                date: toDbDate(data.date),
+                renewalDate: toDbDate(data.renewalDate),
+              });
+            } else {
+              const originalDay = parseLocalDate(data.date).getDate();
+              const arr = months.map((mIndex: number) => {
+                const lastDay = new Date(year, mIndex + 1, 0).getDate();
+                const targetDay = Math.min(originalDay, lastDay);
+                const targetDate = new Date(year, mIndex, targetDay, 12, 0, 0);
+                
+                return {
+                  ...basePayload,
+                  date: toDbDate(format(targetDate, 'yyyy-MM-dd'))!,
+                  renewalDate: data.renewalDate 
+                    ? toDbDate(format(new Date(year, mIndex, Math.min(parseLocalDate(data.renewalDate).getDate(), lastDay), 12, 0, 0), 'yyyy-MM-dd')) 
+                    : null,
+                };
+              });
+              await localDB.saveMany('transactions', arr);
+            }
           } else {
             await localDB.save('transactions', {
               ...basePayload,
@@ -771,11 +834,14 @@ function TransactionsContent() {
       cleanEntityName = cleanEntityName.replace(/\s*\(\d+\/\d+\)\s*$/, '').trim();
     }
 
+    setRecurrentMonthsTouched(true);
     reset({
       type: 'despesa',
       status: 'a_pagar',
       paymentMethod: 'pix',
       recurrent: false,
+      recurrentYear: safeTx.date ? parseLocalDate(safeTx.date).getFullYear() : new Date().getFullYear(),
+      recurrentMonths: safeTx.date ? [parseLocalDate(safeTx.date).getMonth()] : [new Date().getMonth()],
       ...safeTx,
       sharedWith: safeTx.sharedWith,
       entityName: cleanEntityName,
@@ -882,6 +948,7 @@ function TransactionsContent() {
   const confirmImportItem = (index: number) => {
     const item = pendingImports[index];
     setEditingTransaction(null);
+    setRecurrentMonthsTouched(false);
     reset({
       ...item,
       date: item.date,
@@ -968,6 +1035,7 @@ function TransactionsContent() {
             <button
               onClick={() => {
                 setEditingTransaction(null);
+                setRecurrentMonthsTouched(false);
                 reset();
                 setIsModalOpen(true);
               }}
@@ -1760,14 +1828,102 @@ function TransactionsContent() {
                 )}
 
                 {paymentMethod !== 'financiamento' && (
-                  <div className="flex items-center gap-3 p-4 bg-surface-container-high rounded-2xl">
-                    <input
-                      type="checkbox"
-                      id="recurrent"
-                      {...register('recurrent')}
-                      className="w-5 h-5 rounded border-outline text-primary focus:ring-primary/20"
-                    />
-                    <label htmlFor="recurrent" className="text-sm font-bold text-on-surface">Este é um lançamento recorrente (mensal)</label>
+                  <div className="space-y-4 text-on-surface">
+                    <div className="flex items-center gap-3 p-4 bg-surface-container-high rounded-2xl">
+                      <input
+                        type="checkbox"
+                        id="recurrent"
+                        {...register('recurrent')}
+                        className="w-5 h-5 rounded border-outline text-primary focus:ring-primary/20"
+                      />
+                      <label htmlFor="recurrent" className="text-sm font-bold text-on-surface">Este é um lançamento recorrente (mensal)</label>
+                    </div>
+
+                    {watchedRecurrent && (
+                      <div className="p-4 bg-surface-container-high rounded-2xl space-y-4 border border-outline-variant/10">
+                        {editingTransaction ? (
+                          <p className="text-xs font-bold text-on-surface-variant">
+                            ⚠️ A alteração de múltiplos meses está disponível apenas para novos lançamentos. Ao editar, a alteração se aplica somente a este lançamento.
+                          </p>
+                        ) : (
+                          <>
+                            <div className="flex items-center justify-between text-on-surface">
+                              <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant">Ano de Recorrência</label>
+                              <select
+                                {...register('recurrentYear', { valueAsNumber: true })}
+                                className="px-3 py-1.5 bg-surface-container-lowest border-none rounded-xl text-xs font-bold focus:ring-2 focus:ring-primary/20 text-on-surface"
+                              >
+                                {Array.from({ length: 5 }, (_, i) => {
+                                  const yr = new Date().getFullYear() - 1 + i;
+                                  return <option key={yr} value={yr}>{yr}</option>;
+                                })}
+                              </select>
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between text-on-surface">
+                                <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant">Meses do Ano</label>
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setValue('recurrentMonths', Array.from({ length: 12 }, (_, i) => i));
+                                      setRecurrentMonthsTouched(true);
+                                    }}
+                                    className="text-[10px] font-black uppercase text-primary hover:underline bg-transparent border-none p-0 cursor-pointer text-on-surface"
+                                  >
+                                    Todos
+                                  </button>
+                                  <span className="text-[10px] text-outline">•</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setValue('recurrentMonths', []);
+                                      setRecurrentMonthsTouched(true);
+                                    }}
+                                    className="text-[10px] font-black uppercase text-on-surface-variant hover:underline bg-transparent border-none p-0 cursor-pointer text-on-surface"
+                                  >
+                                    Nenhum
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-4 gap-2">
+                                {['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'].map((mLabel, idx) => {
+                                  const isSelected = watchedRecurrentMonths.includes(idx);
+                                  return (
+                                    <button
+                                      key={idx}
+                                      type="button"
+                                      onClick={() => {
+                                        let updated: number[];
+                                        if (isSelected) {
+                                          updated = watchedRecurrentMonths.filter((m: number) => m !== idx);
+                                        } else {
+                                          updated = [...watchedRecurrentMonths, idx].sort((a, b) => a - b);
+                                        }
+                                        setValue('recurrentMonths', updated);
+                                        setRecurrentMonthsTouched(true);
+                                      }}
+                                      className={cn(
+                                        "py-2 text-xs font-bold rounded-xl transition-all border",
+                                        isSelected 
+                                          ? "bg-primary text-white border-primary shadow-sm" 
+                                          : "bg-surface-container-lowest text-on-surface border-outline-variant/20 hover:bg-surface-container-low"
+                                      )}
+                                    >
+                                      {mLabel}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              {watchedRecurrentMonths.length === 0 && (
+                                <p className="text-[10px] text-error font-bold">Selecione pelo menos um mês para criar o lançamento recorrente.</p>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
