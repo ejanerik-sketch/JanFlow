@@ -60,6 +60,7 @@ export default function LogsPage() {
   const [endDate, setEndDate] = useState<string>(defaultEnd);
 
   // Demais Filtros
+  const [selectedUser, setSelectedUser] = useState<string>('todos');
   const [selectedContext, setSelectedContext] = useState<string>('todos');
   const [selectedEntity, setSelectedEntity] = useState<string>('todos');
   const [selectedAction, setSelectedAction] = useState<string>('todos');
@@ -109,6 +110,19 @@ export default function LogsPage() {
     const fetchLogs = async () => {
       setLoading(true);
       try {
+        // Buscar lista de perfis/usuários para mapeamento correto de nomes de autor
+        const profiles = await localDB.get('profiles', user.uid);
+        const profilesMap = new Map<string, { name: string; email: string }>();
+        (profiles || []).forEach((p: any) => {
+          const id = p.id || p.uid;
+          if (id) {
+            profilesMap.set(id, {
+              name: p.name || p.email?.split('@')[0] || 'Usuário',
+              email: p.email || ''
+            });
+          }
+        });
+
         // 1. Logs da tabela activity_logs no Supabase
         const remoteLogs = await localDB.get('activity_logs', user.uid);
         
@@ -121,7 +135,7 @@ export default function LogsPage() {
           localLogs = [];
         }
 
-        // 3. Sintetizar histórico baseado em registros existentes se a tabela de logs estiver em transição
+        // 3. Sintetizar histórico baseado em registros existentes de todos os usuários
         const synthesizedLogs: ActivityLog[] = [];
         
         const [transactions, categories, cards, clients] = await Promise.all([
@@ -139,11 +153,13 @@ export default function LogsPage() {
 
         (transactions || []).forEach((t: any) => {
           if (t.id && !t.id.startsWith('temp_')) {
+            const ownerId = t.userId || t.user_id || user.uid;
+            const ownerProfile = profilesMap.get(ownerId);
             synthesizedLogs.push({
               id: 'synth_tx_' + t.id,
-              userId: user.uid,
-              userName: user.email?.split('@')[0] || 'Usuário',
-              userEmail: user.email || '',
+              userId: ownerId,
+              userName: ownerProfile?.name || t.userName || t.user_name || 'Usuário',
+              userEmail: ownerProfile?.email || t.userEmail || t.user_email || '',
               action: 'Criação',
               entity: 'Lançamentos',
               details: `Lançamento: "${t.entityName || t.description || t.category || 'Lançamento'}" (R$ ${Number(t.value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`,
@@ -155,11 +171,13 @@ export default function LogsPage() {
 
         (categories || []).forEach((c: any) => {
           if (c.id && !c.id.startsWith('temp_')) {
+            const ownerId = c.userId || c.user_id || user.uid;
+            const ownerProfile = profilesMap.get(ownerId);
             synthesizedLogs.push({
               id: 'synth_cat_' + c.id,
-              userId: user.uid,
-              userName: user.email?.split('@')[0] || 'Usuário',
-              userEmail: user.email || '',
+              userId: ownerId,
+              userName: ownerProfile?.name || c.userName || c.user_name || 'Usuário',
+              userEmail: ownerProfile?.email || c.userEmail || c.user_email || '',
               action: 'Criação',
               entity: 'Categorias',
               details: `Categoria: "${c.name}"`,
@@ -171,11 +189,13 @@ export default function LogsPage() {
 
         (cards || []).forEach((cd: any) => {
           if (cd.id && !cd.id.startsWith('temp_')) {
+            const ownerId = cd.userId || cd.user_id || user.uid;
+            const ownerProfile = profilesMap.get(ownerId);
             synthesizedLogs.push({
               id: 'synth_card_' + cd.id,
-              userId: user.uid,
-              userName: user.email?.split('@')[0] || 'Usuário',
-              userEmail: user.email || '',
+              userId: ownerId,
+              userName: ownerProfile?.name || cd.userName || cd.user_name || 'Usuário',
+              userEmail: ownerProfile?.email || cd.userEmail || cd.user_email || '',
               action: 'Criação',
               entity: 'Cartões',
               details: `Cartão de crédito "${cd.name}" (Limite: R$ ${Number(cd.limit_amount || cd.limitAmount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`,
@@ -187,11 +207,13 @@ export default function LogsPage() {
 
         (clients || []).forEach((cl: any) => {
           if (cl.id && !cl.id.startsWith('temp_')) {
+            const ownerId = cl.userId || cl.user_id || user.uid;
+            const ownerProfile = profilesMap.get(ownerId);
             synthesizedLogs.push({
               id: 'synth_cli_' + cl.id,
-              userId: user.uid,
-              userName: user.email?.split('@')[0] || 'Usuário',
-              userEmail: user.email || '',
+              userId: ownerId,
+              userName: ownerProfile?.name || cl.userName || cl.user_name || 'Usuário',
+              userEmail: ownerProfile?.email || cl.userEmail || cl.user_email || '',
               action: 'Criação',
               entity: 'Clientes',
               details: `Cliente: "${cl.companyName || cl.company_name || cl.name || 'Cliente'}"`,
@@ -201,15 +223,18 @@ export default function LogsPage() {
           }
         });
 
-        // Combinar fontes e desduplicar
+        // Combinar fontes e resolver perfis de usuários
         const allLogsMap = new Map<string, ActivityLog>();
         
         [...remoteLogs, ...localLogs, ...synthesizedLogs].forEach((item: any) => {
+          const itemUserId = item.userId || item.user_id;
+          const matchedProfile = itemUserId ? profilesMap.get(itemUserId) : null;
+
           const normalized: ActivityLog = {
             id: item.id || 'log_' + Math.random(),
-            userId: item.userId || item.user_id,
-            userName: item.userName || item.user_name || user.email?.split('@')[0] || 'Usuário',
-            userEmail: item.userEmail || item.user_email || user.email || '',
+            userId: itemUserId,
+            userName: matchedProfile?.name || item.userName || item.user_name || 'Usuário',
+            userEmail: matchedProfile?.email || item.userEmail || item.user_email || '',
             action: item.action || 'Criação',
             entity: item.entity || 'Lançamentos',
             details: item.details || 'Ação no sistema',
@@ -238,16 +263,38 @@ export default function LogsPage() {
     fetchLogs();
   }, [user, refreshTrigger]);
 
+  // Lista única de usuários para o filtro
+  const availableUsers = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; email: string }>();
+    logs.forEach(log => {
+      const key = log.userId || log.userEmail || log.userName;
+      if (key && !map.has(key)) {
+        map.set(key, {
+          id: key,
+          name: log.userName || log.userEmail || 'Usuário',
+          email: log.userEmail || ''
+        });
+      }
+    });
+    return Array.from(map.values());
+  }, [logs]);
+
   // Filtragem dos logs
   const filteredLogs = useMemo(() => {
     return logs.filter(log => {
+      // Filtro por Usuário
+      if (selectedUser !== 'todos') {
+        const matchesUser = log.userId === selectedUser || log.userEmail === selectedUser || log.userName === selectedUser;
+        if (!matchesUser) return false;
+      }
+
       // Filtro por texto pesquisado (appliedSearch)
       if (appliedSearch) {
         const query = appliedSearch.toLowerCase();
         const matchesDetails = (log.details || '').toLowerCase().includes(query);
-        const matchesUser = (log.userName || '').toLowerCase().includes(query) || (log.userEmail || '').toLowerCase().includes(query);
+        const matchesUserText = (log.userName || '').toLowerCase().includes(query) || (log.userEmail || '').toLowerCase().includes(query);
         const matchesEntity = (log.entity || '').toLowerCase().includes(query);
-        if (!matchesDetails && !matchesUser && !matchesEntity) return false;
+        if (!matchesDetails && !matchesUserText && !matchesEntity) return false;
       }
 
       // Filtro por contexto
@@ -274,7 +321,7 @@ export default function LogsPage() {
 
       return true;
     });
-  }, [logs, appliedSearch, selectedContext, selectedEntity, selectedAction, startDate, endDate]);
+  }, [logs, selectedUser, appliedSearch, selectedContext, selectedEntity, selectedAction, startDate, endDate]);
 
   // Agrupamento por dia
   const groupedLogs = useMemo(() => {
@@ -342,7 +389,7 @@ export default function LogsPage() {
               <div>
                 <h2 className="text-3xl font-black tracking-tight text-on-surface">Histórico de Atividades</h2>
                 <p className="text-on-surface-variant font-medium text-sm mt-0.5">
-                  Registro de ações, lançamentos, edições e exclusões no JanFlow.
+                  Registro de ações, lançamentos, edições e exclusões no JanFlow por usuário.
                 </p>
               </div>
             </div>
@@ -351,7 +398,7 @@ export default function LogsPage() {
           <div className="flex items-center gap-3">
             <button 
               onClick={triggerRefresh}
-              className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-bold text-sm transition-all active:scale-95 border border-outline-variant/10 shadow-sm"
+              className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-bold text-sm transition-all active:scale-95 border border-outline-variant/10 shadow-sm cursor-pointer"
             >
               <RefreshCw size={18} className={cn(loading && "animate-spin")} />
               Atualizar
@@ -406,7 +453,22 @@ export default function LogsPage() {
           </form>
 
           {/* Seletores Principais */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* Filtro por Usuário */}
+            <div>
+              <label className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant px-1 mb-1 block">Usuário</label>
+              <select
+                value={selectedUser}
+                onChange={(e) => setSelectedUser(e.target.value)}
+                className="w-full px-4 py-3 bg-surface-container-high border-none rounded-2xl text-sm font-bold text-on-surface focus:ring-2 focus:ring-primary/20 cursor-pointer"
+              >
+                <option value="todos">Todos os Usuários</option>
+                {availableUsers.map(u => (
+                  <option key={u.id} value={u.id}>{u.name} {u.email ? `(${u.email})` : ''}</option>
+                ))}
+              </select>
+            </div>
+
             {/* Contexto */}
             <div>
               <label className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant px-1 mb-1 block">Contexto</label>
@@ -536,9 +598,9 @@ export default function LogsPage() {
             <div className="w-16 h-16 bg-surface-container-high rounded-2xl flex items-center justify-center text-on-surface-variant mx-auto mb-4">
               <History size={32} />
             </div>
-            <h3 className="text-lg font-black text-on-surface mb-1">Nenhum registro no período selecionado</h3>
+            <h3 className="text-lg font-black text-on-surface mb-1">Nenhum registro encontrado com os filtros atuais</h3>
             <p className="text-sm text-on-surface-variant max-w-md mx-auto mb-6">
-              Tente alterar o período de datas ou remover a busca por texto para visualizar outros registros.
+              Tente alterar o filtro de usuário, período de datas ou busca por texto para visualizar outros registros.
             </p>
             <button
               onClick={applyAllDates}
@@ -625,7 +687,7 @@ export default function LogsPage() {
                             {/* Usuário e E-mail */}
                             <div className="flex items-center gap-2 text-xs font-semibold text-on-surface-variant/80">
                               <User size={13} className="text-primary" />
-                              <span>{log.userName || 'Usuário'}</span>
+                              <span className="font-bold text-on-surface">{log.userName || 'Usuário'}</span>
                               {log.userEmail && (
                                 <>
                                   <span>•</span>

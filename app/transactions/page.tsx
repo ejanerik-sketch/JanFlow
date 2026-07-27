@@ -95,6 +95,7 @@ function TransactionsContent() {
   const [filterCategory, setFilterCategory] = useState('todas');
   const [filterStatus, setFilterStatus] = useState('todos');
   const [filterPaymentMethod, setFilterPaymentMethod] = useState('todos');
+  const [filterCardId, setFilterCardId] = useState('todos');
   const [loading, setLoading] = useState(false);
   const [relatedInstallments, setRelatedInstallments] = useState<any[]>([]);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -977,8 +978,9 @@ function TransactionsContent() {
                           (filterStatus === 'pendente' && (t.status === 'a_pagar' || t.status === 'a_receber')) ||
                           t.status === filterStatus;
     const matchesPaymentMethod = filterPaymentMethod === 'todos' || t.paymentMethod === filterPaymentMethod;
+    const matchesCard = filterCardId === 'todos' || t.cardId === filterCardId || t.card_id === filterCardId;
     
-    return matchesSearch && matchesType && matchesCategory && matchesStatus && matchesPaymentMethod;
+    return matchesSearch && matchesType && matchesCategory && matchesStatus && matchesPaymentMethod && matchesCard;
   });
 
   if (!isAuthReady || !user) return null;
@@ -1100,6 +1102,17 @@ function TransactionsContent() {
               <option value="transferencia">Transferência / TED</option>
               <option value="financiamento">Financiamento</option>
               <option value="importado">Importado / Outros</option>
+            </select>
+
+            <select
+              value={filterCardId}
+              onChange={(e) => setFilterCardId(e.target.value)}
+              className="bg-surface-container-high border-none rounded-xl px-4 py-2 text-xs font-bold focus:ring-0 text-on-surface-variant min-w-[140px]"
+            >
+              <option value="todos">Todos os Cartões</option>
+              {cards.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
             </select>
 
             <button
