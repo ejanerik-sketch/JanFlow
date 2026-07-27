@@ -24,7 +24,8 @@ import {
   Plus,
   Database,
   Wifi,
-  WifiOff
+  WifiOff,
+  History
 } from 'lucide-react';
 import { useAppContext } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
@@ -65,6 +66,7 @@ const SidebarContent = ({
     { name: 'Orçamentos', icon: Target, href: '/budgets', analistaHidden: true },
     { name: 'Categorias', icon: Tags, href: '/categories', adminOnly: true },
     { name: 'Clientes', icon: Building2, href: '/clients', adminOrFinanceiro: true, businessOnly: true },
+    { name: 'Histórico', icon: History, href: '/logs', adminOrFinanceiro: true },
     { name: 'Usuários', icon: User, href: '/users', adminOrFinanceiro: true },
   ];
 

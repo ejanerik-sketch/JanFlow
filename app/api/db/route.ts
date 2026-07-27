@@ -1,5 +1,41 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { recordActivityLog } from '@/lib/activityLogger';
+
+const collectionToEntity: Record<string, 'Lançamentos' | 'Categorias' | 'Cartões' | 'Clientes' | 'Orçamentos' | 'Usuários'> = {
+  transactions: 'Lançamentos',
+  categories: 'Categorias',
+  cards: 'Cartões',
+  clients: 'Clientes',
+  budgets: 'Orçamentos',
+  profiles: 'Usuários'
+};
+
+function formatDetails(collection: string, payload: any, actionType: 'Criação' | 'Edição' | 'Exclusão'): string {
+  if (collection === 'transactions') {
+    const title = payload?.entity_name || payload?.description || payload?.category || 'Lançamento';
+    const val = payload?.value ? ` (R$ ${Number(payload.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})` : '';
+    return `${actionType === 'Criação' ? 'Novo lançamento' : actionType === 'Edição' ? 'Lançamento alterado' : 'Lançamento excluído'}: "${title}"${val}`;
+  }
+  if (collection === 'categories') {
+    return `${actionType === 'Criação' ? 'Nova categoria' : actionType === 'Edição' ? 'Categoria alterada' : 'Categoria excluída'}: "${payload?.name || ''}"`;
+  }
+  if (collection === 'cards') {
+    const limit = payload?.limit_amount ? ` (Limite: R$ ${Number(payload.limit_amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})` : '';
+    return `${actionType === 'Criação' ? 'Novo cartão' : actionType === 'Edição' ? 'Cartão alterado' : 'Cartão excluído'}: "${payload?.name || ''}"${limit}`;
+  }
+  if (collection === 'clients') {
+    return `${actionType === 'Criação' ? 'Novo cliente' : actionType === 'Edição' ? 'Cliente alterado' : 'Cliente excluído'}: "${payload?.company_name || payload?.name || ''}"`;
+  }
+  if (collection === 'budgets') {
+    const amt = payload?.amount ? ` (R$ ${Number(payload.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})` : '';
+    return `${actionType === 'Criação' ? 'Novo orçamento' : actionType === 'Edição' ? 'Orçamento alterado' : 'Orçamento excluído'} na categoria "${payload?.category || ''}"${amt}`;
+  }
+  if (collection === 'profiles') {
+    return `${actionType === 'Edição' ? 'Perfil/cargo atualizado' : 'Usuário modificado'}`;
+  }
+  return `${actionType} em ${collection}`;
+}
 
 export async function POST(request: Request) {
   try {
@@ -51,11 +87,25 @@ export async function POST(request: Request) {
     if (action === 'saveMany') {
       const { data, error } = await supabaseAdmin.from(collection).insert(payload).select();
       if (error) throw error;
+
+      if (collectionToEntity[collection]) {
+        recordActivityLog({
+          userId: user.id,
+          userEmail: user.email,
+          action: 'Criação',
+          entity: collectionToEntity[collection],
+          details: `${payload.length} itens adicionados em lote em ${collectionToEntity[collection]}`,
+          context: payload[0]?.context || 'empresa'
+        }).catch(err => console.error(err));
+      }
+
       return NextResponse.json({ data });
     }
 
     if (action === 'save') {
       const isInsert = !payload.id || String(payload.id).startsWith('temp_');
+      let resultData: any;
+
       if (!isInsert) {
         const { id: payloadId, ...updatePayload } = payload;
         const { data, error } = await supabaseAdmin
@@ -65,7 +115,7 @@ export async function POST(request: Request) {
           .select()
           .single();
         if (error) throw error;
-        return NextResponse.json({ data });
+        resultData = data;
       } else {
         const { id: payloadId, ...insertPayload } = payload;
         const { data, error } = await supabaseAdmin
@@ -74,16 +124,50 @@ export async function POST(request: Request) {
           .select()
           .single();
         if (error) throw error;
-        return NextResponse.json({ data });
+        resultData = data;
       }
+
+      if (collectionToEntity[collection]) {
+        const actionType = isInsert ? 'Criação' : 'Edição';
+        recordActivityLog({
+          userId: user.id,
+          userEmail: user.email,
+          action: actionType,
+          entity: collectionToEntity[collection],
+          details: formatDetails(collection, resultData || payload, actionType),
+          context: resultData?.context || payload?.context || 'empresa'
+        }).catch(err => console.error(err));
+      }
+
+      return NextResponse.json({ data: resultData });
     }
 
     if (action === 'delete') {
       if (String(id).startsWith('temp_')) {
         return NextResponse.json({ success: true });
       }
+      
+      // Buscar item antes de deletar para detalhe no log se possível
+      let deletedItem: any = null;
+      if (collectionToEntity[collection]) {
+        const { data } = await supabaseAdmin.from(collection).select('*').eq('id', id).maybeSingle();
+        deletedItem = data;
+      }
+
       const { error } = await supabaseAdmin.from(collection).delete().eq('id', id);
       if (error) throw error;
+
+      if (collectionToEntity[collection]) {
+        recordActivityLog({
+          userId: user.id,
+          userEmail: user.email,
+          action: 'Exclusão',
+          entity: collectionToEntity[collection],
+          details: formatDetails(collection, deletedItem || { id }, 'Exclusão'),
+          context: deletedItem?.context || 'empresa'
+        }).catch(err => console.error(err));
+      }
+
       return NextResponse.json({ success: true });
     }
 
