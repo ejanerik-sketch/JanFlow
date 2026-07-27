@@ -124,9 +124,7 @@ export default function CategoriesPage() {
       
       if (cats.length === 0 && !cachedEmpresa.length) {
         // Seed default categories
-        for (const cat of defaultCategories) {
-          await localDB.save('categories', { ...cat, uid: user.uid });
-        }
+        await localDB.saveMany('categories', defaultCategories.map(cat => ({ ...cat, uid: user.uid })));
         const seededEmpresa = await localDB.get('categories', user.uid, 'empresa');
         const seededPessoal = await localDB.get('categories', user.uid, 'pessoal');
         setCategories(seededEmpresa.concat(seededPessoal));
@@ -155,10 +153,13 @@ export default function CategoriesPage() {
 
     (async () => {
       try {
-        await localDB.save('categories', optimisticCat);
+        const savedCat = await localDB.save('categories', optimisticCat);
+        if (savedCat && savedCat.id) {
+          setCategories(prev => prev.map(c => c.id === optimisticCat.id ? savedCat : c));
+        }
         triggerRefresh();
       } catch (err) {
-        console.error(err);
+        console.error('Error saving category:', err);
         triggerRefresh();
       }
     })();

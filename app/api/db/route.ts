@@ -55,7 +55,8 @@ export async function POST(request: Request) {
     }
 
     if (action === 'save') {
-      if (payload.id) {
+      const isInsert = !payload.id || String(payload.id).startsWith('temp_');
+      if (!isInsert) {
         const { id: payloadId, ...updatePayload } = payload;
         const { data, error } = await supabaseAdmin
           .from(collection)
@@ -78,6 +79,9 @@ export async function POST(request: Request) {
     }
 
     if (action === 'delete') {
+      if (String(id).startsWith('temp_')) {
+        return NextResponse.json({ success: true });
+      }
       const { error } = await supabaseAdmin.from(collection).delete().eq('id', id);
       if (error) throw error;
       return NextResponse.json({ success: true });
