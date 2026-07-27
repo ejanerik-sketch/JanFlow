@@ -434,7 +434,7 @@ function TransactionsContent() {
       const [trans, cats, crds, clnts] = await Promise.all([
         localDB.get('transactions', user.uid, context, { from, to }),
         localDB.get('categories', user.uid, context),
-        localDB.get('cards', user.uid, context),
+        localDB.get('cards', user.uid),
         localDB.get('clients', user.uid),
       ]);
 

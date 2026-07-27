@@ -151,10 +151,30 @@ export default function LogsPage() {
           localDB.get('clients', user.uid)
         ]);
 
+function formatPaymentName(method?: string): string {
+  if (!method) return 'Outro';
+  switch (method) {
+    case 'pix': return 'PIX';
+    case 'cartao_credito': return 'Cartão de Crédito';
+    case 'cartao_debito': return 'Cartão de Débito';
+    case 'boleto': return 'Boleto';
+    case 'dinheiro': return 'Dinheiro';
+    case 'transferencia': return 'Transferência';
+    case 'financiamento': return 'Financiamento';
+    default: return method.replace('_', ' ');
+  }
+}
+
         (transactions || []).forEach((t: any) => {
           if (t.id && !t.id.startsWith('temp_')) {
             const ownerId = t.userId || t.user_id || user.uid;
             const ownerProfile = profilesMap.get(ownerId);
+            const title = t.entityName || t.description || 'Lançamento';
+            const catName = t.category || 'Geral';
+            const payStr = formatPaymentName(t.paymentMethod || t.payment_method);
+            const isRec = t.type === 'receita';
+            const valStr = `R$ ${Number(t.value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+
             synthesizedLogs.push({
               id: 'synth_tx_' + t.id,
               userId: ownerId,
@@ -162,7 +182,7 @@ export default function LogsPage() {
               userEmail: ownerProfile?.email || t.userEmail || t.user_email || '',
               action: 'Criação',
               entity: 'Lançamentos',
-              details: `Lançamento: "${t.entityName || t.description || t.category || 'Lançamento'}" (R$ ${Number(t.value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`,
+              details: `Lançamento: "${title}" | Categoria: ${catName} | ${isRec ? 'Recebimento' : 'Pagamento'}: ${payStr} | ${valStr}`,
               context: t.context || 'empresa',
               createdAt: t.createdAt || t.created_at || t.date || new Date().toISOString()
             });
@@ -464,7 +484,7 @@ export default function LogsPage() {
               >
                 <option value="todos">Todos os Usuários</option>
                 {availableUsers.map(u => (
-                  <option key={u.id} value={u.id}>{u.name} {u.email ? `(${u.email})` : ''}</option>
+                  <option key={u.id} value={u.id}>{u.name}</option>
                 ))}
               </select>
             </div>
@@ -684,16 +704,10 @@ export default function LogsPage() {
                               {log.details}
                             </p>
 
-                            {/* Usuário e E-mail */}
-                            <div className="flex items-center gap-2 text-xs font-semibold text-on-surface-variant/80">
+                            {/* Usuário */}
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-on-surface-variant">
                               <User size={13} className="text-primary" />
-                              <span className="font-bold text-on-surface">{log.userName || 'Usuário'}</span>
-                              {log.userEmail && (
-                                <>
-                                  <span>•</span>
-                                  <span className="font-mono text-[11px] opacity-70">{log.userEmail}</span>
-                                </>
-                              )}
+                              <span className="text-on-surface">{log.userName || 'Usuário'}</span>
                             </div>
                           </div>
                         </div>

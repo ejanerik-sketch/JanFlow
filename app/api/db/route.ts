@@ -11,21 +11,38 @@ const collectionToEntity: Record<string, 'Lançamentos' | 'Categorias' | 'Cartõ
   profiles: 'Usuários'
 };
 
+function formatPaymentMethodName(method?: string): string {
+  if (!method) return 'Outro';
+  switch (method) {
+    case 'pix': return 'PIX';
+    case 'cartao_credito': return 'Cartão de Crédito';
+    case 'cartao_debito': return 'Cartão de Débito';
+    case 'boleto': return 'Boleto';
+    case 'dinheiro': return 'Dinheiro';
+    case 'transferencia': return 'Transferência';
+    case 'financiamento': return 'Financiamento';
+    default: return method.replace('_', ' ');
+  }
+}
+
 function formatDetails(collection: string, payload: any, actionType: 'Criação' | 'Edição' | 'Exclusão'): string {
   if (collection === 'transactions') {
     const title = payload?.entity_name || payload?.description || payload?.category || 'Lançamento';
-    const val = payload?.value ? ` (R$ ${Number(payload.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})` : '';
-    return `${actionType === 'Criação' ? 'Novo lançamento' : actionType === 'Edição' ? 'Lançamento alterado' : 'Lançamento excluído'}: "${title}"${val}`;
+    const cat = payload?.category ? ` | Categoria: ${payload.category}` : '';
+    const payMethod = payload?.payment_method || payload?.paymentMethod;
+    const payStr = payMethod ? ` | ${payload?.type === 'receita' ? 'Recebimento' : 'Pagamento'}: ${formatPaymentMethodName(payMethod)}` : '';
+    const val = payload?.value ? ` | R$ ${Number(payload.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '';
+    return `${actionType === 'Criação' ? 'Novo lançamento' : actionType === 'Edição' ? 'Lançamento alterado' : 'Lançamento excluído'}: "${title}"${cat}${payStr}${val}`;
   }
   if (collection === 'categories') {
     return `${actionType === 'Criação' ? 'Nova categoria' : actionType === 'Edição' ? 'Categoria alterada' : 'Categoria excluída'}: "${payload?.name || ''}"`;
   }
   if (collection === 'cards') {
-    const limit = payload?.limit_amount ? ` (Limite: R$ ${Number(payload.limit_amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})` : '';
+    const limit = payload?.limit_amount || payload?.limitAmount ? ` (Limite: R$ ${Number(payload.limit_amount || payload.limitAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})` : '';
     return `${actionType === 'Criação' ? 'Novo cartão' : actionType === 'Edição' ? 'Cartão alterado' : 'Cartão excluído'}: "${payload?.name || ''}"${limit}`;
   }
   if (collection === 'clients') {
-    return `${actionType === 'Criação' ? 'Novo cliente' : actionType === 'Edição' ? 'Cliente alterado' : 'Cliente excluído'}: "${payload?.company_name || payload?.name || ''}"`;
+    return `${actionType === 'Criação' ? 'Novo cliente' : actionType === 'Edição' ? 'Cliente alterado' : 'Cliente excluído'}: "${payload?.company_name || payload?.companyName || payload?.name || ''}"`;
   }
   if (collection === 'budgets') {
     const amt = payload?.amount ? ` (R$ ${Number(payload.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})` : '';
