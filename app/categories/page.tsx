@@ -120,14 +120,25 @@ export default function CategoriesPage() {
       // 2. Busca Atualizada
       const catsEmpresa = await localDB.get('categories', user.uid, 'empresa');
       const catsPessoal = await localDB.get('categories', user.uid, 'pessoal');
-      const cats = catsEmpresa.concat(catsPessoal);
       
-      if (cats.length === 0 && !cachedEmpresa.length) {
-        // Seed default categories
-        await localDB.saveMany('categories', defaultCategories.map(cat => ({ ...cat, uid: user.uid })));
+      // Deduplicação defensiva
+      const seen = new Set<string>();
+      const cats = [...catsEmpresa, ...catsPessoal].filter(c => {
+        const key = `${c.context || 'empresa'}_${c.flow || 'despesa_variavel'}_${(c.name || '').trim().toUpperCase()}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      
+      if (cats.length === 0 && !cachedEmpresa.length && !cachedPessoal.length) {
+        // Verificar se existem categorias no banco antes de semear
+        const allInDB = await localDB.get('categories', user.uid);
+        if (!allInDB || allInDB.length === 0) {
+          await localDB.saveMany('categories', defaultCategories.map(cat => ({ ...cat, uid: user.uid })));
+        }
         const seededEmpresa = await localDB.get('categories', user.uid, 'empresa');
         const seededPessoal = await localDB.get('categories', user.uid, 'pessoal');
-        setCategories(seededEmpresa.concat(seededPessoal));
+        setCategories([...seededEmpresa, ...seededPessoal]);
       } else {
         setCategories(cats);
       }
