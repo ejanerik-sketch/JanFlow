@@ -127,10 +127,12 @@ export default function CardsPage() {
 
     const payload = {
       ...newCard,
+      limitAmount: parseFloat((newCard as any).limitAmount || (newCard as any).limit_amount) || 0,
+      dueDay: parseInt((newCard as any).dueDay || (newCard as any).due_day) || (parseInt(newCard.closingDay) || 10) + 7,
+      closingDay: parseInt(newCard.closingDay) || 10,
       uid: user.uid,
       context: context,
       type: context === 'empresa' ? 'pj' : 'pessoal',
-      closingDay: parseInt(newCard.closingDay) || 10,
       createdAt: new Date().toISOString(),
       id: editingCard?.id || 'temp_' + Date.now(),
     };

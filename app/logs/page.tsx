@@ -318,13 +318,26 @@ function formatPaymentName(method?: string): string {
       }
 
       // Filtro por contexto
-      if (selectedContext !== 'todos' && log.context !== selectedContext) {
-        return false;
+      if (selectedContext !== 'todos') {
+        if (log.context && log.context !== 'sistema' && log.context !== selectedContext) {
+          if (log.entity !== 'Cartões' && log.entity !== 'Usuários') {
+            return false;
+          }
+        }
       }
 
       // Filtro por entidade
-      if (selectedEntity !== 'todos' && log.entity !== selectedEntity) {
-        return false;
+      if (selectedEntity !== 'todos') {
+        if (selectedEntity === 'Cartões') {
+          const isCardEntity = log.entity === 'Cartões';
+          const isCardTx = log.entity === 'Lançamentos' && (
+            (log.details || '').toLowerCase().includes('cartão') || 
+            (log.details || '').toLowerCase().includes('cartao')
+          );
+          if (!isCardEntity && !isCardTx) return false;
+        } else if (log.entity !== selectedEntity) {
+          return false;
+        }
       }
 
       // Filtro por ação

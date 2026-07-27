@@ -423,10 +423,10 @@ function TransactionsContent() {
       // 1. Carrega do Cache Instantaneamente
       const cachedTrans = localDB.getCached('transactions', user.uid, context, { from, to });
       const cachedCats = localDB.getCached('categories', user.uid, context);
-      const cachedCrds = localDB.getCached('cards', user.uid, context);
+      const cachedCrds = localDB.getCached('cards', user.uid);
       const cachedClnts = localDB.getCached('clients', user.uid);
       
-      if (cachedTrans.length > 0 || cachedCats.length > 0) {
+      if (cachedTrans.length > 0 || cachedCats.length > 0 || cachedCrds.length > 0) {
         processData(cachedTrans, cachedCats, cachedCrds, cachedClnts);
       }
 
@@ -981,7 +981,11 @@ function TransactionsContent() {
                           (filterStatus === 'pendente' && (t.status === 'a_pagar' || t.status === 'a_receber')) ||
                           t.status === filterStatus;
     const matchesPaymentMethod = filterPaymentMethod === 'todos' || t.paymentMethod === filterPaymentMethod;
-    const matchesCard = filterCardId === 'todos' || t.cardId === filterCardId || t.card_id === filterCardId;
+    const selectedCardObj = cards.find(c => c.id === filterCardId);
+    const matchesCard = filterCardId === 'todos' || 
+                        t.cardId === filterCardId || 
+                        t.card_id === filterCardId ||
+                        (selectedCardObj && (t.cardId === selectedCardObj.name || t.card_id === selectedCardObj.name));
     
     return matchesSearch && matchesType && matchesCategory && matchesStatus && matchesPaymentMethod && matchesCard;
   });
