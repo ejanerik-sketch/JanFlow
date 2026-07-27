@@ -94,6 +94,7 @@ function TransactionsContent() {
   const [filterType, setFilterType] = useState<'todos' | 'receita' | 'despesa'>('todos');
   const [filterCategory, setFilterCategory] = useState('todas');
   const [filterStatus, setFilterStatus] = useState('todos');
+  const [filterPaymentMethod, setFilterPaymentMethod] = useState('todos');
   const [loading, setLoading] = useState(false);
   const [relatedInstallments, setRelatedInstallments] = useState<any[]>([]);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -967,6 +968,7 @@ function TransactionsContent() {
                           (t.description || '').toLowerCase().includes(searchLower) ||
                           (t.category || '').toLowerCase().includes(searchLower) ||
                           (t.status || '').toLowerCase().includes(searchLower) ||
+                          (t.paymentMethod || '').toLowerCase().includes(searchLower) ||
                           (t.value || '').toString().includes(searchLower);
     const matchesType = filterType === 'todos' || t.type === filterType;
     const matchesCategory = filterCategory === 'todas' || t.category === filterCategory;
@@ -974,8 +976,9 @@ function TransactionsContent() {
                           (filterStatus === 'pago' && (t.status === 'pago' || t.status === 'recebido')) ||
                           (filterStatus === 'pendente' && (t.status === 'a_pagar' || t.status === 'a_receber')) ||
                           t.status === filterStatus;
+    const matchesPaymentMethod = filterPaymentMethod === 'todos' || t.paymentMethod === filterPaymentMethod;
     
-    return matchesSearch && matchesType && matchesCategory && matchesStatus;
+    return matchesSearch && matchesType && matchesCategory && matchesStatus && matchesPaymentMethod;
   });
 
   if (!isAuthReady || !user) return null;
@@ -1081,6 +1084,22 @@ function TransactionsContent() {
               <option value="pago">Pago / Recebido</option>
               <option value="pendente">Pendente</option>
               <option value="atrasado">Atrasado</option>
+            </select>
+
+            <select
+              value={filterPaymentMethod}
+              onChange={(e) => setFilterPaymentMethod(e.target.value)}
+              className="bg-surface-container-high border-none rounded-xl px-4 py-2 text-xs font-bold focus:ring-0 text-on-surface-variant min-w-[140px]"
+            >
+              <option value="todos">Forma de Pagamento</option>
+              <option value="pix">PIX</option>
+              <option value="cartao_credito">Cartão de Crédito</option>
+              <option value="cartao_debito">Cartão de Débito</option>
+              <option value="boleto">Boleto</option>
+              <option value="dinheiro">Dinheiro / Espécie</option>
+              <option value="transferencia">Transferência / TED</option>
+              <option value="financiamento">Financiamento</option>
+              <option value="importado">Importado / Outros</option>
             </select>
 
             <button

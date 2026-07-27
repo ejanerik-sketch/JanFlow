@@ -7,7 +7,6 @@ import Layout from '@/components/Layout';
 import { 
   History, 
   Search, 
-  Filter, 
   PlusCircle, 
   Edit3, 
   Trash2, 
@@ -22,12 +21,12 @@ import {
   CreditCard,
   Target,
   FileText,
-  ShieldAlert
+  X
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import { localDB } from '@/lib/localDB';
 import { cn } from '@/lib/utils';
-import { format, parseISO, isToday, isYesterday } from 'date-fns';
+import { format, parseISO, isToday, isYesterday, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 interface ActivityLog {
@@ -48,16 +47,54 @@ export default function LogsPage() {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Filtros
-  const [search, setSearch] = useState('');
+  // Pesquisa por texto (com enter e X para limpar)
+  const [searchInput, setSearchInput] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
+
+  // Filtro de Datas Pré-configurado para o MÊS ATUAL por padrão
+  const now = new Date();
+  const defaultStart = format(startOfMonth(now), 'yyyy-MM-dd');
+  const defaultEnd = format(endOfMonth(now), 'yyyy-MM-dd');
+
+  const [startDate, setStartDate] = useState<string>(defaultStart);
+  const [endDate, setEndDate] = useState<string>(defaultEnd);
+
+  // Demais Filtros
   const [selectedContext, setSelectedContext] = useState<string>('todos');
   const [selectedEntity, setSelectedEntity] = useState<string>('todos');
   const [selectedAction, setSelectedAction] = useState<string>('todos');
-  const [startDate, setStartDate] = useState<string>('');
-  const [endDate, setEndDate] = useState<string>('');
 
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const triggerRefresh = () => setRefreshTrigger(prev => prev + 1);
+
+  // Handlers para pesquisa por texto
+  const handleExecuteSearch = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setAppliedSearch(searchInput.trim());
+  };
+
+  const handleClearSearch = () => {
+    setSearchInput('');
+    setAppliedSearch('');
+  };
+
+  // Presets de Data
+  const applyCurrentMonth = () => {
+    const currentDate = new Date();
+    setStartDate(format(startOfMonth(currentDate), 'yyyy-MM-dd'));
+    setEndDate(format(endOfMonth(currentDate), 'yyyy-MM-dd'));
+  };
+
+  const applyPreviousMonth = () => {
+    const prevDate = subMonths(new Date(), 1);
+    setStartDate(format(startOfMonth(prevDate), 'yyyy-MM-dd'));
+    setEndDate(format(endOfMonth(prevDate), 'yyyy-MM-dd'));
+  };
+
+  const applyAllDates = () => {
+    setStartDate('');
+    setEndDate('');
+  };
 
   // Proteção de rota: apenas Admin ou Financeiro
   useEffect(() => {
@@ -72,14 +109,127 @@ export default function LogsPage() {
     const fetchLogs = async () => {
       setLoading(true);
       try {
-        const data = await localDB.get('activity_logs', user.uid);
-        // Ordenar por data decrescente
-        const sorted = (data || []).sort((a: any, b: any) => 
-          new Date(b.createdAt || b.created_at).getTime() - new Date(a.createdAt || a.created_at).getTime()
+        // 1. Logs da tabela activity_logs no Supabase
+        const remoteLogs = await localDB.get('activity_logs', user.uid);
+        
+        // 2. Logs salvos no localStorage como backup local
+        let localLogs: ActivityLog[] = [];
+        try {
+          const stored = localStorage.getItem('janflow_activity_logs_v1');
+          if (stored) localLogs = JSON.parse(stored);
+        } catch (e) {
+          localLogs = [];
+        }
+
+        // 3. Sintetizar histórico baseado em registros existentes se a tabela de logs estiver em transição
+        const synthesizedLogs: ActivityLog[] = [];
+        
+        const [transactions, categories, cards, clients] = await Promise.all([
+          localDB.get('transactions', user.uid, 'empresa').then(t1 => 
+            localDB.get('transactions', user.uid, 'pessoal').then(t2 => [...t1, ...t2])
+          ),
+          localDB.get('categories', user.uid, 'empresa').then(c1 => 
+            localDB.get('categories', user.uid, 'pessoal').then(c2 => [...c1, ...c2])
+          ),
+          localDB.get('cards', user.uid, 'empresa').then(cd1 => 
+            localDB.get('cards', user.uid, 'pessoal').then(cd2 => [...cd1, ...cd2])
+          ),
+          localDB.get('clients', user.uid)
+        ]);
+
+        (transactions || []).forEach((t: any) => {
+          if (t.id && !t.id.startsWith('temp_')) {
+            synthesizedLogs.push({
+              id: 'synth_tx_' + t.id,
+              userId: user.uid,
+              userName: user.email?.split('@')[0] || 'Usuário',
+              userEmail: user.email || '',
+              action: 'Criação',
+              entity: 'Lançamentos',
+              details: `Lançamento: "${t.entityName || t.description || t.category || 'Lançamento'}" (R$ ${Number(t.value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`,
+              context: t.context || 'empresa',
+              createdAt: t.createdAt || t.created_at || t.date || new Date().toISOString()
+            });
+          }
+        });
+
+        (categories || []).forEach((c: any) => {
+          if (c.id && !c.id.startsWith('temp_')) {
+            synthesizedLogs.push({
+              id: 'synth_cat_' + c.id,
+              userId: user.uid,
+              userName: user.email?.split('@')[0] || 'Usuário',
+              userEmail: user.email || '',
+              action: 'Criação',
+              entity: 'Categorias',
+              details: `Categoria: "${c.name}"`,
+              context: c.context || 'empresa',
+              createdAt: c.createdAt || c.created_at || new Date().toISOString()
+            });
+          }
+        });
+
+        (cards || []).forEach((cd: any) => {
+          if (cd.id && !cd.id.startsWith('temp_')) {
+            synthesizedLogs.push({
+              id: 'synth_card_' + cd.id,
+              userId: user.uid,
+              userName: user.email?.split('@')[0] || 'Usuário',
+              userEmail: user.email || '',
+              action: 'Criação',
+              entity: 'Cartões',
+              details: `Cartão de crédito "${cd.name}" (Limite: R$ ${Number(cd.limit_amount || cd.limitAmount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`,
+              context: cd.context || 'empresa',
+              createdAt: cd.createdAt || cd.created_at || new Date().toISOString()
+            });
+          }
+        });
+
+        (clients || []).forEach((cl: any) => {
+          if (cl.id && !cl.id.startsWith('temp_')) {
+            synthesizedLogs.push({
+              id: 'synth_cli_' + cl.id,
+              userId: user.uid,
+              userName: user.email?.split('@')[0] || 'Usuário',
+              userEmail: user.email || '',
+              action: 'Criação',
+              entity: 'Clientes',
+              details: `Cliente: "${cl.companyName || cl.company_name || cl.name || 'Cliente'}"`,
+              context: 'empresa',
+              createdAt: cl.createdAt || cl.created_at || new Date().toISOString()
+            });
+          }
+        });
+
+        // Combinar fontes e desduplicar
+        const allLogsMap = new Map<string, ActivityLog>();
+        
+        [...remoteLogs, ...localLogs, ...synthesizedLogs].forEach((item: any) => {
+          const normalized: ActivityLog = {
+            id: item.id || 'log_' + Math.random(),
+            userId: item.userId || item.user_id,
+            userName: item.userName || item.user_name || user.email?.split('@')[0] || 'Usuário',
+            userEmail: item.userEmail || item.user_email || user.email || '',
+            action: item.action || 'Criação',
+            entity: item.entity || 'Lançamentos',
+            details: item.details || 'Ação no sistema',
+            context: item.context || 'empresa',
+            createdAt: item.createdAt || item.created_at || new Date().toISOString()
+          };
+
+          const key = normalized.details + '_' + (normalized.createdAt || '').substring(0, 10);
+          if (!allLogsMap.has(key)) {
+            allLogsMap.set(key, normalized);
+          }
+        });
+
+        const combinedLogs = Array.from(allLogsMap.values()).sort((a, b) => 
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         );
-        setLogs(sorted);
+
+        setLogs(combinedLogs);
       } catch (err) {
-        console.error('Erro ao buscar histórico de atividades:', err);
+        console.error('Erro ao carregar histórico:', err);
       } finally {
         setLoading(false);
       }
@@ -91,9 +241,9 @@ export default function LogsPage() {
   // Filtragem dos logs
   const filteredLogs = useMemo(() => {
     return logs.filter(log => {
-      // Filtro por texto (pesquisa)
-      if (search) {
-        const query = search.toLowerCase();
+      // Filtro por texto pesquisado (appliedSearch)
+      if (appliedSearch) {
+        const query = appliedSearch.toLowerCase();
         const matchesDetails = (log.details || '').toLowerCase().includes(query);
         const matchesUser = (log.userName || '').toLowerCase().includes(query) || (log.userEmail || '').toLowerCase().includes(query);
         const matchesEntity = (log.entity || '').toLowerCase().includes(query);
@@ -117,22 +267,24 @@ export default function LogsPage() {
 
       // Filtro por intervalo de datas
       if (startDate || endDate) {
-        const logDateStr = (log.createdAt || (log as any).created_at || '').substring(0, 10);
+        const logDateStr = (log.createdAt || '').substring(0, 10);
         if (startDate && logDateStr < startDate) return false;
         if (endDate && logDateStr > endDate) return false;
       }
 
       return true;
     });
-  }, [logs, search, selectedContext, selectedEntity, selectedAction, startDate, endDate]);
+  }, [logs, appliedSearch, selectedContext, selectedEntity, selectedAction, startDate, endDate]);
 
   // Agrupamento por dia
   const groupedLogs = useMemo(() => {
     const groups: { [key: string]: ActivityLog[] } = {};
     filteredLogs.forEach(log => {
-      const rawDate = log.createdAt || (log as any).created_at;
+      const rawDate = log.createdAt;
       if (!rawDate) return;
-      const dateObj = parseISO(rawDate);
+      let dateObj = parseISO(rawDate);
+      if (isNaN(dateObj.getTime())) dateObj = new Date();
+      
       let dayKey = '';
       if (isToday(dateObj)) {
         dayKey = 'Hoje';
@@ -190,7 +342,7 @@ export default function LogsPage() {
               <div>
                 <h2 className="text-3xl font-black tracking-tight text-on-surface">Histórico de Atividades</h2>
                 <p className="text-on-surface-variant font-medium text-sm mt-0.5">
-                  Registro completo de lançamentos, edições e exclusões no JanFlow.
+                  Registro de ações, lançamentos, edições e exclusões no JanFlow.
                 </p>
               </div>
             </div>
@@ -208,22 +360,56 @@ export default function LogsPage() {
         </div>
 
         {/* Painel de Filtros */}
-        <div className="bg-surface-container-lowest p-6 rounded-[28px] border border-outline-variant/15 shadow-sm space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
-            {/* Pesquisa por Texto */}
-            <div className="relative md:col-span-2">
-              <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" />
+        <div className="bg-surface-container-lowest p-6 rounded-[28px] border border-outline-variant/15 shadow-sm space-y-5">
+          {/* Formulário de Busca por Texto com Lupa + Enter + Botão 'X' */}
+          <form onSubmit={handleExecuteSearch} className="flex gap-2">
+            <div className="relative flex-1">
+              <button 
+                type="submit" 
+                title="Pesquisar (ou pressione Enter)"
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 p-1 text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
+              >
+                <Search size={18} />
+              </button>
+              
               <input 
                 type="text"
-                placeholder="Buscar por detalhe, usuário ou item..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-11 pr-4 py-3 bg-surface-container-high border-none rounded-2xl text-sm font-bold text-on-surface placeholder:text-on-surface-variant/60 focus:ring-2 focus:ring-primary/20"
+                placeholder="Digite para pesquisar e pressione Enter ou clique na lupa..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleExecuteSearch(e);
+                }}
+                className="w-full pl-11 pr-10 py-3.5 bg-surface-container-high border-none rounded-2xl text-sm font-bold text-on-surface placeholder:text-on-surface-variant/60 focus:ring-2 focus:ring-primary/20"
               />
+
+              {/* Botão 'X' para limpar */}
+              {searchInput && (
+                <button
+                  type="button"
+                  onClick={handleClearSearch}
+                  title="Apagar pesquisa"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1 text-on-surface-variant hover:text-error rounded-full hover:bg-surface-container-highest transition-colors cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              )}
             </div>
 
+            <button
+              type="submit"
+              className="px-6 py-3.5 bg-primary text-white font-black text-sm rounded-2xl shadow-md active:scale-95 transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <Search size={18} />
+              Buscar
+            </button>
+          </form>
+
+          {/* Seletores Principais */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {/* Contexto */}
             <div>
+              <label className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant px-1 mb-1 block">Contexto</label>
               <select
                 value={selectedContext}
                 onChange={(e) => setSelectedContext(e.target.value)}
@@ -238,6 +424,7 @@ export default function LogsPage() {
 
             {/* Entidade */}
             <div>
+              <label className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant px-1 mb-1 block">Área / Entidade</label>
               <select
                 value={selectedEntity}
                 onChange={(e) => setSelectedEntity(e.target.value)}
@@ -255,6 +442,7 @@ export default function LogsPage() {
 
             {/* Ação */}
             <div>
+              <label className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant px-1 mb-1 block">Tipo de Ação</label>
               <select
                 value={selectedAction}
                 onChange={(e) => setSelectedAction(e.target.value)}
@@ -268,43 +456,64 @@ export default function LogsPage() {
             </div>
           </div>
 
-          {/* Filtro de Datas */}
-          <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-outline-variant/10 text-xs font-bold">
-            <div className="flex items-center gap-2 text-on-surface-variant">
-              <Calendar size={14} />
-              <span>Período:</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <input 
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="bg-surface-container-high border-none rounded-xl px-3 py-1.5 font-bold text-on-surface"
-              />
-              <span className="text-on-surface-variant">até</span>
-              <input 
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="bg-surface-container-high border-none rounded-xl px-3 py-1.5 font-bold text-on-surface"
-              />
+          {/* Filtro de Datas + Presets de Período */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-3 border-t border-outline-variant/10">
+            <div className="flex flex-wrap items-center gap-3 text-xs font-bold">
+              <div className="flex items-center gap-1.5 text-on-surface-variant">
+                <Calendar size={15} className="text-primary" />
+                <span>Período:</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input 
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="bg-surface-container-high border-none rounded-xl px-3 py-2 font-bold text-on-surface focus:ring-2 focus:ring-primary/20"
+                />
+                <span className="text-on-surface-variant">até</span>
+                <input 
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="bg-surface-container-high border-none rounded-xl px-3 py-2 font-bold text-on-surface focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
             </div>
 
-            {(search || selectedContext !== 'todos' || selectedEntity !== 'todos' || selectedAction !== 'todos' || startDate || endDate) && (
+            {/* Botões Rápidos de Período */}
+            <div className="flex items-center gap-2 overflow-x-auto">
               <button
-                onClick={() => {
-                  setSearch('');
-                  setSelectedContext('todos');
-                  setSelectedEntity('todos');
-                  setSelectedAction('todos');
-                  setStartDate('');
-                  setEndDate('');
-                }}
-                className="ml-auto text-xs font-black text-primary hover:underline cursor-pointer"
+                type="button"
+                onClick={applyCurrentMonth}
+                className={cn(
+                  "px-3 py-1.5 rounded-xl text-xs font-black transition-all whitespace-nowrap cursor-pointer",
+                  startDate === defaultStart && endDate === defaultEnd
+                    ? "bg-primary text-white shadow-sm"
+                    : "bg-surface-container-high text-on-surface-variant hover:text-on-surface"
+                )}
               >
-                Limpar Filtros
+                Mês Atual
               </button>
-            )}
+              <button
+                type="button"
+                onClick={applyPreviousMonth}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-all whitespace-nowrap cursor-pointer"
+              >
+                Mês Anterior
+              </button>
+              <button
+                type="button"
+                onClick={applyAllDates}
+                className={cn(
+                  "px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer",
+                  !startDate && !endDate
+                    ? "bg-primary text-white shadow-sm"
+                    : "bg-surface-container-high text-on-surface-variant hover:text-on-surface"
+                )}
+              >
+                Todo o Período
+              </button>
+            </div>
           </div>
         </div>
 
@@ -312,6 +521,7 @@ export default function LogsPage() {
         <div className="flex items-center justify-between px-2">
           <span className="text-xs font-black uppercase tracking-widest text-on-surface-variant">
             {filteredLogs.length} {filteredLogs.length === 1 ? 'registro encontrado' : 'registros encontrados'}
+            {appliedSearch && ` para "${appliedSearch}"`}
           </span>
         </div>
 
@@ -326,10 +536,16 @@ export default function LogsPage() {
             <div className="w-16 h-16 bg-surface-container-high rounded-2xl flex items-center justify-center text-on-surface-variant mx-auto mb-4">
               <History size={32} />
             </div>
-            <h3 className="text-lg font-black text-on-surface mb-1">Nenhum registro de histórico encontrado</h3>
-            <p className="text-sm text-on-surface-variant max-w-md mx-auto">
-              As ações de criação, edição ou exclusão realizadas pelos usuários serão registradas automaticamente aqui.
+            <h3 className="text-lg font-black text-on-surface mb-1">Nenhum registro no período selecionado</h3>
+            <p className="text-sm text-on-surface-variant max-w-md mx-auto mb-6">
+              Tente alterar o período de datas ou remover a busca por texto para visualizar outros registros.
             </p>
+            <button
+              onClick={applyAllDates}
+              className="px-6 py-3 bg-surface-container-high text-on-surface font-black text-xs rounded-xl hover:bg-surface-container-highest transition-all cursor-pointer"
+            >
+              Ver Todo o Histórico
+            </button>
           </div>
         ) : (
           <div className="space-y-8">
@@ -347,8 +563,14 @@ export default function LogsPage() {
                   {dayLogs.map((log) => {
                     const badge = getActionBadge(log.action);
                     const EntityIcon = getEntityIcon(log.entity);
-                    const rawDate = log.createdAt || (log as any).created_at;
-                    const formattedTime = rawDate ? format(parseISO(rawDate), 'HH:mm:ss') : '';
+                    const rawDate = log.createdAt;
+                    let formattedTime = '12:00:00';
+                    if (rawDate) {
+                      const d = parseISO(rawDate);
+                      if (!isNaN(d.getTime())) {
+                        formattedTime = format(d, 'HH:mm:ss');
+                      }
+                    }
 
                     return (
                       <motion.div
