@@ -405,7 +405,7 @@ function TransactionsContent() {
       });
       setAllTransactions(processed);
 
-      setTransactions([...processed].filter(t => t.userPortion > 0 || !t.isShared).sort((a: any, b: any) => {
+      setTransactions([...processed].sort((a: any, b: any) => {
         const dateA = parseLocalDate(a.date).getTime();
         const dateB = parseLocalDate(b.date).getTime();
         return dateB - dateA;
@@ -1117,7 +1117,7 @@ function TransactionsContent() {
               className="bg-surface-container-high border-none rounded-xl px-4 py-2 text-xs font-bold focus:ring-0 text-on-surface-variant min-w-[140px]"
             >
               <option value="todos">Todos os Cartões</option>
-              {cards.map(c => (
+              {cards.filter(c => c.context === context).map(c => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
@@ -1565,7 +1565,7 @@ function TransactionsContent() {
                         className="w-full px-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20"
                       >
                         <option value="">Selecione o cartão...</option>
-                        {cards.map(c => (
+                        {cards.filter(c => c.context === context).map(c => (
                           <option key={c.id} value={c.id}>{c.name}{c.bank ? ` (${c.bank})` : ''}</option>
                         ))}
                       </select>
@@ -1593,7 +1593,7 @@ function TransactionsContent() {
                         className="w-full px-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20"
                       >
                         <option value="">Selecione o cartão...</option>
-                        {cards.map(c => (
+                        {cards.filter(c => c.context === context).map(c => (
                           <option key={c.id} value={c.id}>{c.name} ({c.bank})</option>
                         ))}
                       </select>

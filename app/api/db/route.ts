@@ -102,7 +102,7 @@ export async function POST(request: Request) {
     }
 
     if (action === 'saveMany') {
-      const { data, error } = await supabaseAdmin.from(collection).insert(payload).select();
+      const { data, error } = await supabaseAdmin.from(collection).upsert(payload).select();
       if (error) throw error;
 
       if (collectionToEntity[collection]) {

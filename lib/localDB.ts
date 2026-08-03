@@ -137,8 +137,10 @@ export const localDB = {
         delete p.uid;
       }
       const dbItem = convertKeysToSnakeCase(p);
-      const { id, ...rest } = dbItem;
-      return rest;
+      if (dbItem.id && String(dbItem.id).startsWith('temp_')) {
+        delete dbItem.id;
+      }
+      return dbItem;
     });
 
     try {

@@ -7,7 +7,6 @@ import { useAppContext } from '@/context/AppContext';
 import Layout from '@/components/Layout';
 import { 
   BarChart3, 
-  Download, 
   FileText, 
   Table, 
   Calendar, 
@@ -32,7 +31,8 @@ import {
   RefreshCw,
   Printer,
   Eye,
-  EyeOff
+  EyeOff,
+  X
 } from 'lucide-react';
 import { localDB } from '@/lib/localDB';
 import { format, startOfMonth, endOfMonth, subMonths, getYear, setYear, setMonth, addMonths, startOfYear, endOfYear, subYears, isSameMonth, isSameYear, parseISO, isWithinInterval } from 'date-fns';
@@ -73,6 +73,19 @@ export default function ReportsPage() {
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [lastBackup, setLastBackup] = useState<string | null>(null);
+  
+  // Backup & Import States
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [pendingImportData, setPendingImportData] = useState<any>(null);
+  const [importSelections, setImportSelections] = useState({
+    transactions: true,
+    clients: true,
+    cards: true,
+    budgets: true,
+    categories: true,
+  });
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+
   const [valuesHidden, setValuesHidden] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('janflow_values_hidden') === 'true';
@@ -423,27 +436,76 @@ export default function ReportsPage() {
     return acc;
   }, {});
 
-  const handleExportCSV = () => {
-    const data = transactions.map(t => ({
-      Data: format(parseLocalDate(t.date), 'dd/MM/yyyy'),
-      Tipo: t.type === 'receita' ? 'Receita' : 'Despesa',
-      Entidade: t.entityName,
-      Descrição: t.description || '',
-      Categoria: t.category,
-      Valor: t.value,
-      Status: t.status,
-      'Método de Pagamento': t.paymentMethod,
-      'Parcelas': t.installments || 1,
-      'Parcela Atual': t.currentInstallment || 1,
-      'Recorrente': t.recurrent ? 'Sim' : 'Não',
-      'Contexto': t.context === 'empresa' ? 'Empresa' : 'Pessoal',
-      'Observação': t.observation || ''
-    }));
+  const handleExportExcel = async () => {
+    if (!user) return;
+    setIsExportingExcel(true);
+    try {
+      const [trans, cats, crds, bdgts, clnts] = await Promise.all([
+        localDB.get('transactions', user.uid),
+        localDB.get('categories', user.uid),
+        localDB.get('cards', user.uid),
+        localDB.get('budgets', user.uid),
+        localDB.get('clients', user.uid),
+      ]);
 
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Relatório Completo");
-    XLSX.writeFile(wb, `Relatorio_Financeiro_${format(selectedMonth, 'yyyy_MM')}.xlsx`);
+      const wb = XLSX.utils.book_new();
+
+      const transData = trans.map((t: any) => ({
+        Data: t.date ? format(parseLocalDate(t.date), 'dd/MM/yyyy') : '',
+        Tipo: t.type === 'receita' ? 'Receita' : 'Despesa',
+        Entidade: t.entityName,
+        Descrição: t.description || '',
+        Categoria: t.category,
+        Valor: t.value,
+        Status: t.status,
+        'Método de Pagamento': t.paymentMethod,
+        'Parcelas': t.installments || 1,
+        'Parcela Atual': t.currentInstallment || 1,
+        'Recorrente': t.recurrent ? 'Sim' : 'Não',
+        'Contexto': t.context === 'empresa' ? 'Empresa' : 'Pessoal',
+        'Observação': t.observation || ''
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(transData), "Lançamentos");
+
+      if (clnts.length > 0) {
+        const clntsData = clnts.map((c: any) => ({
+          'Nome/Empresa': c.companyName || c.name || '',
+          Documento: c.document || c.cnpj || '',
+          Email: c.email || c.companyEmail || '',
+          Telefone: c.phone || '',
+          Status: c.status || 'ativo'
+        }));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clntsData), "Clientes");
+      }
+
+      if (bdgts.length > 0) {
+        const bdgtsData = bdgts.map((b: any) => ({
+          Categoria: b.category,
+          Valor: b.amount,
+          'Mês/Ano': b.monthYear || ''
+        }));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(bdgtsData), "Orçamentos");
+      }
+
+      if (crds.length > 0) {
+        const crdsData = crds.map((c: any) => ({
+          Nome: c.name,
+          Limite: c.limitAmount || 0,
+          Banco: c.bank || '',
+          'Fechamento': c.closingDay || '',
+          'Vencimento': c.dueDay || '',
+          Tipo: c.type || ''
+        }));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(crdsData), "Cartões");
+      }
+
+      XLSX.writeFile(wb, `Relatorio_Financeiro_Completo_${format(new Date(), 'yyyy_MM_dd')}.xlsx`);
+    } catch (e) {
+      console.error("Excel Export failed", e);
+      alert("Erro ao gerar planilha.");
+    } finally {
+      setIsExportingExcel(false);
+    }
   };
 
   const handleExportBackup = async () => {
@@ -497,12 +559,6 @@ export default function ReportsPage() {
     const file = e.target.files?.[0];
     if (!file || !user) return;
 
-    if (!confirm("Atenção: A importação irá adicionar e mesclar os dados do arquivo ao seu sistema. Deseja continuar?")) {
-      e.target.value = '';
-      return;
-    }
-
-    setIsImporting(true);
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
@@ -513,29 +569,51 @@ export default function ReportsPage() {
           throw new Error("Arquivo de backup inválido.");
         }
 
-        // Import process inside localDB (iterate over collections and save them)
-        const collections = ['transactions', 'categories', 'cards', 'budgets', 'clients'];
-        for (const col of collections) {
-          if (backup.data[col] && Array.isArray(backup.data[col])) {
-            for (const item of backup.data[col]) {
-              // Ensure we re-map to current user logically though IDs shouldn't change
-              const safeItem = { ...item, user_id: user.uid, uid: user.uid };
-              await localDB.save(col, safeItem);
-            }
-          }
-        }
-        
-        alert("Importação concluída com sucesso! Recarregando a página...");
-        window.location.reload();
+        setPendingImportData(backup.data);
+        setShowImportModal(true);
       } catch (err) {
         console.error("Import error", err);
         alert("Erro ao processar arquivo de importação. Verifique se o arquivo está correto.");
-      } finally {
-        setIsImporting(false);
       }
     };
     reader.readAsText(file);
     e.target.value = ''; // Reset input
+  };
+
+  const executeImport = async () => {
+    if (!user || !pendingImportData) return;
+    setIsImporting(true);
+
+    try {
+      const collections = [
+        { key: 'transactions', label: 'transactions' },
+        { key: 'clients', label: 'clients' },
+        { key: 'cards', label: 'cards' },
+        { key: 'budgets', label: 'budgets' },
+        { key: 'categories', label: 'categories' }
+      ];
+
+      for (const col of collections) {
+        if (importSelections[col.key as keyof typeof importSelections] && pendingImportData[col.label] && Array.isArray(pendingImportData[col.label])) {
+          const itemsToSave = pendingImportData[col.label].map((item: any) => ({
+            ...item,
+            user_id: user.uid,
+            uid: user.uid
+          }));
+          
+          if (itemsToSave.length > 0) {
+            await localDB.saveMany(col.label, itemsToSave);
+          }
+        }
+      }
+      
+      alert("Importação concluída com sucesso! Recarregando a página...");
+      window.location.reload();
+    } catch (err) {
+      console.error("Execute import error", err);
+      alert("Erro ao executar importação no banco de dados.");
+      setIsImporting(false);
+    }
   };
 
   const handleExportPDF = async () => {
@@ -765,10 +843,12 @@ export default function ReportsPage() {
               <Printer size={16} /> Imprimir Relatório
             </button>
             <button 
-              onClick={handleExportCSV}
-              className="flex items-center gap-2 px-4 py-2 bg-surface-container-low border border-outline-variant/20 text-on-surface rounded-xl text-sm font-bold hover:bg-surface-container-highest active:scale-95 transition-all"
+              onClick={handleExportExcel}
+              disabled={isExportingExcel}
+              className="flex items-center gap-2 px-4 py-2 bg-surface-container-low border border-outline-variant/20 text-on-surface rounded-xl text-sm font-bold hover:bg-surface-container-highest active:scale-95 transition-all disabled:opacity-70"
             >
-              <Table size={16} /> Planilha EXCEL
+              {isExportingExcel ? <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div> : <Table size={16} />}
+              Planilha EXCEL
             </button>
           </div>
         </div>
@@ -1245,6 +1325,80 @@ export default function ReportsPage() {
           </div>
         )}
       </div>
+
+      {/* Modal de Seleção de Importação */}
+      {showImportModal && pendingImportData && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-surface p-6 rounded-3xl max-w-lg w-full shadow-2xl border border-outline-variant/20">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-black text-on-surface">Importar Backup</h2>
+              <button 
+                onClick={() => { setShowImportModal(false); setPendingImportData(null); }}
+                className="p-2 bg-surface-container hover:bg-surface-container-highest text-on-surface rounded-full transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="mb-6 space-y-4">
+              <p className="text-sm text-on-surface-variant font-medium">
+                Selecione quais dados você deseja importar. Registros existentes não serão apagados, apenas atualizados ou adicionados.
+              </p>
+              
+              <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-2xl p-4 space-y-3">
+                {[
+                  { key: 'transactions', label: 'Lançamentos', count: pendingImportData.transactions?.length || 0 },
+                  { key: 'clients', label: 'Clientes', count: pendingImportData.clients?.length || 0 },
+                  { key: 'cards', label: 'Cartões', count: pendingImportData.cards?.length || 0 },
+                  { key: 'budgets', label: 'Orçamentos', count: pendingImportData.budgets?.length || 0 },
+                  { key: 'categories', label: 'Categorias', count: pendingImportData.categories?.length || 0 },
+                ].map(item => (
+                  <label key={item.key} className={`flex items-center justify-between p-3 rounded-xl border ${importSelections[item.key as keyof typeof importSelections] ? 'border-primary bg-primary/5' : 'border-outline-variant/30 bg-surface'} cursor-pointer transition-colors`}>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={importSelections[item.key as keyof typeof importSelections]}
+                        disabled={item.count === 0}
+                        onChange={(e) => setImportSelections(prev => ({ ...prev, [item.key]: e.target.checked }))}
+                        className="w-5 h-5 rounded text-primary border-outline-variant bg-surface-container checked:bg-primary"
+                      />
+                      <span className={`font-bold ${item.count === 0 ? 'text-on-surface-variant/50' : 'text-on-surface'}`}>{item.label}</span>
+                    </div>
+                    <span className="text-xs font-bold px-2 py-1 bg-surface-container-high rounded-md text-on-surface-variant">
+                      {item.count} itens
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-3 justify-end mt-8">
+              <button 
+                onClick={() => { setShowImportModal(false); setPendingImportData(null); }}
+                className="px-6 py-3 font-bold text-on-surface bg-surface-container hover:bg-surface-container-highest rounded-xl transition-colors"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={executeImport}
+                disabled={isImporting || !Object.values(importSelections).some(Boolean)}
+                className="px-6 py-3 font-bold text-on-primary bg-primary hover:bg-[#16808c] disabled:opacity-50 rounded-xl flex items-center gap-2 transition-all active:scale-95"
+              >
+                {isImporting ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Importando...
+                  </>
+                ) : (
+                  <>
+                    <UploadCloud size={20} /> Confirmar Importação
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }

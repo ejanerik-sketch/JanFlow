@@ -13,6 +13,7 @@ import {
   Filter, 
   ArrowUpRight, 
   ArrowDownRight,
+  Download,
   MoreVertical,
   ChevronRight,
   X,
@@ -33,6 +34,7 @@ export default function CardsPage() {
   const { user, isAuthReady, context, isAdmin, isFinanceiro } = useAppContext();
   const [cards, setCards] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<any>(null);
   const [newCard, setNewCard] = useState({ name: '', bank: '', brand: '', type: 'pj', closingDay: '10' });
@@ -40,6 +42,9 @@ export default function CardsPage() {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('todas');
+  const [minValue, setMinValue] = useState('');
+  const [maxValue, setMaxValue] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [cardToDelete, setCardToDelete] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -76,16 +81,24 @@ export default function CardsPage() {
     const loadData = async () => {
       // 1. Cache Instantâneo
       const cachedCards = localDB.getCached('cards', user.uid, context);
+      const cachedCats = localDB.getCached('categories', user.uid, context);
       if (cachedCards.length > 0) {
         setCards(cachedCards);
         if (!selectedCardId) {
           setSelectedCardId(cachedCards[0].id);
         }
       }
+      if (cachedCats.length > 0) {
+        setCategories(cachedCats);
+      }
 
       // 2. Busca Atualizada
-      const docs = await localDB.get('cards', user.uid, context);
+      const [docs, catsDocs] = await Promise.all([
+        localDB.get('cards', user.uid, context),
+        localDB.get('categories', user.uid, context)
+      ]);
       setCards(docs);
+      setCategories(catsDocs || []);
       if (docs.length > 0 && !selectedCardId) {
         setSelectedCardId(docs[0].id);
       }
@@ -243,16 +256,50 @@ export default function CardsPage() {
     if (!matchesMonth) return false;
 
     const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = ((t.entityName || '').toLowerCase()).includes(searchLower) || 
+    const matchesSearch = !searchTerm || ((t.entityName || '').toLowerCase()).includes(searchLower) || 
                           ((t.category || '').toLowerCase()).includes(searchLower) ||
                           ((t.description || '').toLowerCase()).includes(searchLower) ||
                           (t.value || '').toString().includes(searchLower) ||
                           format(tDate, 'dd/MM/yyyy').includes(searchLower);
     
-    return matchesSearch;
+    const matchesCategory = selectedCategory === 'todas' || t.category === selectedCategory;
+    const matchesMin = !minValue || Number(t.value) >= parseFloat(minValue);
+    const matchesMax = !maxValue || Number(t.value) <= parseFloat(maxValue);
+
+    return matchesSearch && matchesCategory && matchesMin && matchesMax;
   });
 
   const totalInvoice = filteredTransactions.reduce((acc: number, t: any) => acc + t.value, 0);
+
+  const handleExportCSV = () => {
+    if (filteredTransactions.length === 0) return;
+    
+    const headers = ['Data', 'Cartão', 'Entidade', 'Descrição', 'Categoria', 'Valor (R$)', 'Parcela', 'Status'];
+    const rows = filteredTransactions.map(t => [
+      format(parseLocalDate(t.date), 'dd/MM/yyyy'),
+      selectedCard?.name || '',
+      t.entityName || '',
+      t.description || '',
+      t.category || '',
+      t.value.toFixed(2),
+      t.currentInstallment && t.installments > 1 ? `${t.currentInstallment}/${t.installments}` : 'À vista',
+      t.status || ''
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `fatura_${(selectedCard?.name || 'cartao').toLowerCase().replace(/\s+/g, '_')}_${format(selectedMonth, 'MM_yyyy')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
@@ -385,6 +432,19 @@ export default function CardsPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-3">
+                      <button
+                        onClick={handleExportCSV}
+                        disabled={filteredTransactions.length === 0}
+                        title="Exportar fatura do cartão em CSV"
+                        className={cn(
+                          "px-4 py-2.5 rounded-2xl text-xs font-black flex items-center gap-2 transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
+                          themeBg,
+                          "text-white"
+                        )}
+                      >
+                        <Download size={16} />
+                        <span className="hidden sm:inline">Exportar Fatura</span>
+                      </button>
                       <div className="flex items-center gap-2 bg-surface-container-high p-1 rounded-2xl">
                         <select
                           value={getMonth(selectedMonth)}
@@ -452,20 +512,53 @@ export default function CardsPage() {
                   )}
 
                   <div className="space-y-8">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div className="flex items-center gap-2">
                         <Calendar size={18} className="text-on-surface-variant" />
-                        <h4 className="text-sm font-black uppercase tracking-widest text-on-surface-variant">Lançamentos na Fatura</h4>
+                        <h4 className="text-sm font-black uppercase tracking-widest text-on-surface-variant">
+                          Lançamentos na Fatura ({filteredTransactions.length})
+                        </h4>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <div className="relative">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" size={16} />
+                      
+                      {/* Filtros da Fatura */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* Filtro por Categoria */}
+                        <select
+                          value={selectedCategory}
+                          onChange={(e) => setSelectedCategory(e.target.value)}
+                          className="bg-surface-container-high border-none rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-primary/20 text-on-surface-variant cursor-pointer max-w-[160px]"
+                        >
+                          <option value="todas">Todas as Categorias</option>
+                          {categories.map(c => (
+                            <option key={c.id} value={c.name}>{c.name}</option>
+                          ))}
+                        </select>
+
+                        {/* Filtros por Valor Mín/Máx */}
+                        <input
+                          type="number"
+                          placeholder="Mín R$"
+                          value={minValue}
+                          onChange={(e) => setMinValue(e.target.value)}
+                          className="w-20 px-3 py-2 bg-surface-container-high border-none rounded-xl text-xs font-bold focus:ring-2 focus:ring-primary/20"
+                        />
+                        <input
+                          type="number"
+                          placeholder="Máx R$"
+                          value={maxValue}
+                          onChange={(e) => setMaxValue(e.target.value)}
+                          className="w-20 px-3 py-2 bg-surface-container-high border-none rounded-xl text-xs font-bold focus:ring-2 focus:ring-primary/20"
+                        />
+
+                        {/* Filtro por Texto */}
+                        <div className="relative min-w-[150px]">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" size={14} />
                           <input
                             type="text"
-                            placeholder="Filtrar lançamentos..."
+                            placeholder="Buscar..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="pl-10 pr-4 py-2 bg-surface-container-high border-none rounded-xl text-xs font-bold focus:ring-2 focus:ring-primary/20"
+                            className="pl-9 pr-3 py-2 bg-surface-container-high border-none rounded-xl text-xs font-bold focus:ring-2 focus:ring-primary/20 w-full"
                           />
                         </div>
                       </div>
