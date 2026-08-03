@@ -4,14 +4,14 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppContext } from '@/context/AppContext';
 import Layout from '@/components/Layout';
-import { 
-  Plus, 
-  CreditCard, 
-  Trash2, 
-  Edit2, 
-  Search, 
-  Filter, 
-  ArrowUpRight, 
+import {
+  Plus,
+  CreditCard,
+  Trash2,
+  Edit2,
+  Search,
+  Filter,
+  ArrowUpRight,
   ArrowDownRight,
   Download,
   MoreVertical,
@@ -21,7 +21,8 @@ import {
   UserCircle2,
   Calendar,
   PieChart as PieChartIcon,
-  AlertTriangle
+  AlertTriangle,
+  ExternalLink
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { localDB } from '@/lib/localDB';
@@ -183,7 +184,7 @@ export default function CardsPage() {
   const confirmDelete = async () => {
     if (cardToDelete) {
       const idToDelete = cardToDelete;
-      
+
       // Otimista
       setCards(prev => prev.filter(c => c.id !== idToDelete));
       if (selectedCardId === idToDelete) setSelectedCardId(null);
@@ -203,10 +204,10 @@ export default function CardsPage() {
 
   const handleEditCard = (card: any) => {
     setEditingCard(card);
-    setNewCard({ 
-      name: card.name, 
-      bank: card.bank, 
-      brand: card.brand, 
+    setNewCard({
+      name: card.name,
+      bank: card.bank,
+      brand: card.brand,
       type: card.type,
       closingDay: (card.closingDay || 10).toString()
     });
@@ -265,14 +266,14 @@ export default function CardsPage() {
     if (!matchesMonth) return false;
 
     const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = !searchTerm || 
-                          ((t.entityName || '').toLowerCase()).includes(searchLower) || 
-                          ((t.category || '').toLowerCase()).includes(searchLower) ||
-                          ((t.description || '').toLowerCase()).includes(searchLower) ||
-                          (t.value || '').toString().includes(searchLower) ||
-                          formatCurrency(t.value || 0).toLowerCase().includes(searchLower) ||
-                          format(tDate, 'dd/MM/yyyy').includes(searchLower);
-    
+    const matchesSearch = !searchTerm ||
+      ((t.entityName || '').toLowerCase()).includes(searchLower) ||
+      ((t.category || '').toLowerCase()).includes(searchLower) ||
+      ((t.description || '').toLowerCase()).includes(searchLower) ||
+      (t.value || '').toString().includes(searchLower) ||
+      formatCurrency(t.value || 0).toLowerCase().includes(searchLower) ||
+      format(tDate, 'dd/MM/yyyy').includes(searchLower);
+
     const matchesCategory = selectedCategory === 'todas' || t.category === selectedCategory;
 
     return matchesSearch && matchesCategory;
@@ -291,8 +292,8 @@ export default function CardsPage() {
         const nameA = (a.entityName || '').toLowerCase().trim();
         const nameB = (b.entityName || '').toLowerCase().trim();
 
-        const isNameSimilar = nameA === nameB || 
-                              (nameA.length > 3 && nameB.length > 3 && (nameA.includes(nameB) || nameB.includes(nameA)));
+        const isNameSimilar = nameA === nameB ||
+          (nameA.length > 3 && nameB.length > 3 && (nameA.includes(nameB) || nameB.includes(nameA)));
 
         if (sameDate && sameValue && isNameSimilar) {
           ids.add(a.id);
@@ -307,7 +308,7 @@ export default function CardsPage() {
 
   const handleExportCSV = () => {
     if (filteredTransactions.length === 0) return;
-    
+
     const headers = ['Data', 'Cartão', 'Entidade', 'Descrição', 'Categoria', 'Valor (R$)', 'Parcela', 'Status'];
     const rows = filteredTransactions.map(t => [
       format(parseLocalDate(t.date), 'dd/MM/yyyy'),
@@ -392,7 +393,7 @@ export default function CardsPage() {
                   >
                     {/* Card Background Pattern */}
                     <div className="absolute -top-10 -right-10 w-32 h-32 bg-surface-container-highest/20 rounded-full blur-2xl group-hover:bg-surface-container-highest/40 transition-colors"></div>
-                    
+
                     <div className="flex items-start justify-between mb-8">
                       <div className={cn(
                         "w-10 h-10 rounded-xl flex items-center justify-center text-white",
@@ -401,14 +402,14 @@ export default function CardsPage() {
                         <CreditCard size={20} />
                       </div>
                       <div className="flex items-center gap-1 relative z-10">
-                        <button 
+                        <button
                           onClick={(e) => { e.stopPropagation(); handleEditCard(card); }}
                           className="p-2 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-lg transition-all"
                         >
                           <Edit2 size={16} />
                         </button>
                         {(isAdmin || isFinanceiro) && (
-                          <button 
+                          <button
                             onClick={(e) => { e.stopPropagation(); handleDeleteCard(card.id); }}
                             className="p-2 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-all"
                           >
@@ -527,10 +528,10 @@ export default function CardsPage() {
                                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                               ))}
                             </Pie>
-                            <Tooltip 
-                              contentStyle={{ 
-                                backgroundColor: '#1a1c1e', 
-                                border: 'none', 
+                            <Tooltip
+                              contentStyle={{
+                                backgroundColor: '#1a1c1e',
+                                border: 'none',
                                 borderRadius: '12px',
                                 color: '#fff',
                                 fontWeight: 'bold'
@@ -538,14 +539,14 @@ export default function CardsPage() {
                               itemStyle={{ color: '#fff' }}
                               formatter={(value: any) => formatCurrency(value as number)}
                             />
-                            <Legend verticalAlign="bottom" height={36}/>
+                            <Legend verticalAlign="bottom" wrapperStyle={{ paddingTop: '20px' }} />
                           </PieChart>
                         </ResponsiveContainer>
                       </div>
                     </div>
                   )}
 
-                  <div className="space-y-8">
+                  <div className="space-y-6 pt-4 border-t border-outline-variant/10">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div className="flex items-center gap-2">
                         <Calendar size={18} className="text-on-surface-variant" />
@@ -553,7 +554,7 @@ export default function CardsPage() {
                           Lançamentos na Fatura ({filteredTransactions.length})
                         </h4>
                       </div>
-                      
+
                       {/* Filtros da Fatura */}
                       <div className="flex flex-wrap items-center gap-2">
                         {/* Filtro por Categoria */}
@@ -582,6 +583,12 @@ export default function CardsPage() {
                       </div>
                     </div>
 
+                    {/* Resumo do Valor Total Filtrado na Fatura */}
+                    <div className="p-4 rounded-2xl bg-surface-container-high flex items-center justify-between">
+                      <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Total da Fatura Exibida</span>
+                      <span className="text-base font-black text-error">{formatCurrency(totalInvoice)}</span>
+                    </div>
+
                     {duplicateIds.size > 0 && (
                       <motion.div
                         initial={{ opacity: 0, y: -10 }}
@@ -606,8 +613,8 @@ export default function CardsPage() {
                         filteredTransactions.map((t) => {
                           const isDuplicate = duplicateIds.has(t.id);
                           return (
-                            <div 
-                              key={t.id} 
+                            <div
+                              key={t.id}
                               className={cn(
                                 "flex items-center justify-between p-4 rounded-2xl transition-colors group relative overflow-hidden",
                                 isDuplicate ? "bg-amber-500/10 border-2 border-amber-500/40 hover:bg-amber-500/15" : "hover:bg-surface-container-low"
@@ -621,7 +628,7 @@ export default function CardsPage() {
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <p className="font-bold text-on-surface">{t.entityName}</p>
                                     {isDuplicate && (
-                                      <motion.span 
+                                      <motion.span
                                         animate={{ opacity: [0.6, 1, 0.6], scale: [0.98, 1.02, 0.98] }}
                                         transition={{ repeat: Infinity, duration: 1.5 }}
                                         className="text-[9px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-amber-500 text-black flex items-center gap-1 shadow-sm"
@@ -631,8 +638,15 @@ export default function CardsPage() {
                                       </motion.span>
                                     )}
                                   </div>
-                                  <div className="flex items-center gap-2">
-                                    <p className="text-xs text-on-surface-variant font-medium">{t.category} • {format(parseLocalDate(t.date), 'dd MMM', { locale: ptBR })}</p>
+                                  <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                                    <p className="text-xs text-on-surface-variant font-medium">
+                                      {t.category} • {format(parseLocalDate(t.date), 'dd MMM', { locale: ptBR })}
+                                    </p>
+                                    {t.createdBy && (
+                                      <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-md">
+                                        por: {t.createdBy}
+                                      </span>
+                                    )}
                                     {t.currentInstallment && t.installments > 1 && (
                                       <span className="text-[10px] font-black bg-surface-container-highest px-2 py-0.5 rounded-full text-on-surface-variant">
                                         Parcela {t.currentInstallment}/{t.installments}
@@ -641,8 +655,17 @@ export default function CardsPage() {
                                   </div>
                                 </div>
                               </div>
-                              <div className="text-right">
-                                <p className="font-black text-error">- {formatCurrency(t.value)}</p>
+                              <div className="flex items-center gap-3">
+                                <div className="text-right">
+                                  <p className="font-black text-error">- {formatCurrency(t.value)}</p>
+                                </div>
+                                <button
+                                  onClick={() => router.push(`/transactions?editId=${t.id}`)}
+                                  title="Abrir no Lançamento"
+                                  className="p-2 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-xl transition-all"
+                                >
+                                  <ExternalLink size={16} />
+                                </button>
                               </div>
                             </div>
                           );
@@ -726,7 +749,7 @@ export default function CardsPage() {
                 <h3 className="text-xl font-black text-on-surface">
                   {editingCard ? 'Editar Cartão' : 'Novo Cartão'}
                 </h3>
-                <button 
+                <button
                   onClick={() => setIsModalOpen(false)}
                   className="p-2 hover:bg-surface-container-high rounded-full transition-colors"
                 >

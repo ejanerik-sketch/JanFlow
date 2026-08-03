@@ -382,11 +382,15 @@ function TransactionsContent() {
     }
   }, [user, isAuthReady, router]);
 
+
+
   useEffect(() => {
     if (searchParams.get('new') === 'true') {
       setIsModalOpen(true);
     }
   }, [searchParams]);
+
+
 
   useEffect(() => {
     if (!user) return;
@@ -881,14 +885,14 @@ function TransactionsContent() {
   }, [reset]);
 
   useEffect(() => {
-    const editId = searchParams.get('edit');
+    const editId = searchParams.get('editId') || searchParams.get('edit');
     if (editId && allTransactions.length > 0 && !editingTransaction && !isModalOpen) {
       const tx = allTransactions.find((t: any) => t.id === editId);
       if (tx) {
         handleEdit(tx);
       }
     }
-  }, [searchParams, transactions, editingTransaction, isModalOpen, handleEdit]);
+  }, [searchParams, allTransactions, editingTransaction, isModalOpen, handleEdit]);
 
   const handleDownload = () => {
     if (filteredTransactions.length === 0) return;
@@ -1288,6 +1292,11 @@ function TransactionsContent() {
                                     <AlertTriangle size={10} />
                                     Possível Duplicado
                                   </motion.span>
+                                )}
+                                {t.createdBy && (
+                                  <span className="text-[9px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-md whitespace-nowrap">
+                                    por: {t.createdBy}
+                                  </span>
                                 )}
                                 {t.currentInstallment && t.installments > 1 && (
                                   <span className="text-[9px] font-black bg-surface-container-highest px-2 py-0.5 rounded-full text-on-surface-variant whitespace-nowrap">
