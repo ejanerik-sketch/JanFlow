@@ -560,7 +560,7 @@ function TransactionsContent() {
         ...basePayload,
         value: optimisticValue,
         id: editingTransaction ? editingTransaction.id : 'temp_' + Date.now(),
-        date: toDbDate(data.date),
+        date: toDbDate(((data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate) ? data.firstInstallmentDate : data.date),
         renewalDate: toDbDate(data.renewalDate),
       };
       
@@ -702,7 +702,7 @@ function TransactionsContent() {
           } else {
             await localDB.save('transactions', {
               ...basePayload,
-              date: toDbDate(data.date),
+              date: toDbDate(((data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate) ? data.firstInstallmentDate : data.date),
               renewalDate: toDbDate(data.renewalDate),
             });
           }
@@ -1339,7 +1339,11 @@ function TransactionsContent() {
                         <p className={cn("text-sm font-black", t.type === 'receita' ? "text-success" : "text-error")}>
                           {t.type === 'receita' ? '+' : '-'} {formatCurrency(t.userPortion !== undefined ? t.userPortion : t.value)}
                         </p>
-                        <p className="text-[10px] font-bold text-on-surface-variant uppercase">{t.paymentMethod.replace('_', ' ')}</p>
+                        <p className="text-[10px] font-bold text-on-surface-variant uppercase">
+                          {t.cardId && cards.find(c => c.id === t.cardId) 
+                            ? cards.find(c => c.id === t.cardId)?.name 
+                            : t.paymentMethod.replace('_', ' ')}
+                        </p>
                       </td>
                       <td className="px-6 py-5 text-right">
                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
