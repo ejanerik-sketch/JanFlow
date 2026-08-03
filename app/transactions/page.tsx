@@ -2000,24 +2000,18 @@ function TransactionsContent() {
 
                     {watchedRecurrent && (
                       <div className="p-4 bg-surface-container-high rounded-2xl space-y-4 border border-outline-variant/10">
-                        {editingTransaction ? (
-                          <p className="text-xs font-bold text-on-surface-variant">
-                            ⚠️ A alteração de múltiplos meses está disponível apenas para novos lançamentos. Ao editar, a alteração se aplica somente a este lançamento.
-                          </p>
-                        ) : (
-                          <>
-                            <div className="flex items-center justify-between text-on-surface">
-                              <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant">Ano de Recorrência</label>
-                              <select
-                                {...register('recurrentYear', { valueAsNumber: true })}
-                                className="px-3 py-1.5 bg-surface-container-lowest border-none rounded-xl text-xs font-bold focus:ring-2 focus:ring-primary/20 text-on-surface"
-                              >
-                                {Array.from({ length: 5 }, (_, i) => {
-                                  const yr = new Date().getFullYear() - 1 + i;
-                                  return <option key={yr} value={yr}>{yr}</option>;
-                                })}
-                              </select>
-                            </div>
+                        <div className="flex items-center justify-between text-on-surface">
+                          <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant">Ano de Recorrência</label>
+                          <select
+                            {...register('recurrentYear', { valueAsNumber: true })}
+                            className="px-3 py-1.5 bg-surface-container-lowest border-none rounded-xl text-xs font-bold focus:ring-2 focus:ring-primary/20 text-on-surface"
+                          >
+                            {Array.from({ length: 5 }, (_, i) => {
+                              const yr = new Date().getFullYear() - 1 + i;
+                              return <option key={yr} value={yr}>{yr}</option>;
+                            })}
+                          </select>
+                        </div>
 
                             <div className="space-y-2">
                               <div className="flex items-center justify-between text-on-surface">
@@ -2079,8 +2073,6 @@ function TransactionsContent() {
                                 <p className="text-[10px] text-error font-bold">Selecione pelo menos um mês para criar o lançamento recorrente.</p>
                               )}
                             </div>
-                          </>
-                        )}
                       </div>
                     )}
                   </div>
