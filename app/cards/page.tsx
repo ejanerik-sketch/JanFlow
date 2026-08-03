@@ -112,17 +112,18 @@ export default function CardsPage() {
 
     const loadTransactions = async () => {
       const selectedCard = cards.find(c => c.id === selectedCardId);
-      const closingDay = selectedCard?.closingDay || 10;
-      
-      const cycleEnd = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), closingDay - 1);
-      const cycleStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1, closingDay);
-      
-      const from = format(cycleStart, 'yyyy-MM-dd');
-      const to = format(cycleEnd, 'yyyy-MM-dd');
+      if (!selectedCard) return;
+
+      // Busca um intervalo amplo em torno do mês selecionado para garantir performance e precisão
+      const startPeriod = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1, 1);
+      const endPeriod = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 2, 0);
+
+      const from = format(startPeriod, 'yyyy-MM-dd');
+      const to = format(endPeriod, 'yyyy-MM-dd');
 
       const allTransactions = await localDB.get('transactions', user.uid, context, { from, to });
       const cardTransactions = allTransactions
-        .filter((t: any) => t.cardId === selectedCardId)
+        .filter((t: any) => t.cardId === selectedCardId || t.card_id === selectedCardId)
         .sort((a: any, b: any) => {
           const dateA = parseLocalDate(a.date).getTime();
           const dateB = parseLocalDate(b.date).getTime();
@@ -214,23 +215,20 @@ export default function CardsPage() {
 
   const categoryData = React.useMemo(() => {
     const data: { [key: string]: number } = {};
-    const selectedCard = cards.find(c => c.id === selectedCardId);
-    const closingDay = selectedCard?.closingDay || 10;
-    
+    const targetMonth = selectedMonth.getMonth();
+    const targetYear = selectedMonth.getFullYear();
+
     const filtered = transactions.filter(t => {
       const tDate = parseLocalDate(t.date);
-      const end = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), closingDay - 1);
-      const start = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1, closingDay);
-      return isWithinInterval(tDate, { start, end });
+      return tDate.getMonth() === targetMonth && tDate.getFullYear() === targetYear;
     });
 
     filtered
-      .filter(t => t.status === 'pago')
       .forEach(t => {
         data[t.category] = (data[t.category] || 0) + t.value;
       });
     return Object.entries(data).map(([name, value]) => ({ name, value }));
-  }, [transactions, cards, selectedCardId, selectedMonth]);
+  }, [transactions, selectedMonth]);
 
   if (!isAuthReady || !user) return null;
 
@@ -244,15 +242,13 @@ export default function CardsPage() {
   };
 
   const selectedCard = cards.find(c => c.id === selectedCardId);
-  const closingDay = selectedCard?.closingDay || 10;
 
-  // Calculate the billing cycle for the selected month
-  const cycleEnd = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), closingDay - 1);
-  const cycleStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1, closingDay);
+  const targetMonth = selectedMonth.getMonth();
+  const targetYear = selectedMonth.getFullYear();
 
   const filteredTransactions = transactions.filter(t => {
     const tDate = parseLocalDate(t.date);
-    const matchesMonth = isWithinInterval(tDate, { start: cycleStart, end: cycleEnd });
+    const matchesMonth = tDate.getMonth() === targetMonth && tDate.getFullYear() === targetYear;
     if (!matchesMonth) return false;
 
     const searchLower = searchTerm.toLowerCase();
@@ -424,9 +420,9 @@ export default function CardsPage() {
                         {selectedCard?.name} • {selectedCard?.bank}
                       </p>
                       <p className="text-[10px] uppercase tracking-widest font-black text-on-surface-variant/60 mt-2 flex items-center gap-2">
-                        {isWithinInterval(new Date(), { start: cycleStart, end: cycleEnd }) && (
+                        {getMonth(new Date()) === getMonth(selectedMonth) && getYear(new Date()) === getYear(selectedMonth) && (
                           <span className="text-[10px] font-black bg-success/10 text-success px-2 py-0.5 rounded-full uppercase tracking-widest">
-                            Fatura Aberta
+                            Fatura Atual
                           </span>
                         )}
                       </p>
