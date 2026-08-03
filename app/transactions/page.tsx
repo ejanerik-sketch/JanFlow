@@ -758,9 +758,28 @@ function TransactionsContent() {
   const confirmDelete = async () => {
     if (!deleteConfirmId) return;
     try {
-      await localDB.delete('transactions', deleteConfirmId);
+      const targetTx = allTransactions.find((t: any) => t.id === deleteConfirmId);
+      
+      if (targetTx && (targetTx.groupId || (targetTx.installments && targetTx.installments > 1))) {
+        const related = allTransactions.filter((t: any) => 
+          (targetTx.groupId && t.groupId === targetTx.groupId) ||
+          (!targetTx.groupId && t.entityName === targetTx.entityName && t.installments === targetTx.installments &&
+           Math.abs(new Date(t.createdAt).getTime() - new Date(targetTx.createdAt).getTime()) < 10000)
+        );
+
+        if (related.length > 0) {
+          for (const item of related) {
+            await localDB.delete('transactions', item.id);
+          }
+        } else {
+          await localDB.delete('transactions', deleteConfirmId);
+        }
+      } else {
+        await localDB.delete('transactions', deleteConfirmId);
+      }
+
       triggerRefresh();
-      if (editingTransaction && editingTransaction.id === deleteConfirmId) {
+      if (editingTransaction) {
         closeModal();
       }
       setDeleteConfirmId(null);
