@@ -115,8 +115,8 @@ export default function CardsPage() {
       const selectedCard = cards.find(c => c.id === selectedCardId);
       if (!selectedCard) return;
 
-      // Busca um intervalo amplo em torno do mês selecionado para garantir performance e precisão
-      const startPeriod = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1, 1);
+      // Busca um intervalo amplo cobrindo do mês M-2 até M+2 para capturar as compras do ciclo de vencimento
+      const startPeriod = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 2, 1);
       const endPeriod = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 2, 0);
 
       const from = format(startPeriod, 'yyyy-MM-dd');
@@ -216,12 +216,20 @@ export default function CardsPage() {
 
   const categoryData = React.useMemo(() => {
     const data: { [key: string]: number } = {};
-    const targetMonth = selectedMonth.getMonth();
-    const targetYear = selectedMonth.getFullYear();
+    const selectedCard = cards.find(c => c.id === selectedCardId);
+    const closingDay = selectedCard?.closingDay || 10;
+
+    // Se o filtro selecionado é a Fatura que VENCE em Mês M (ex: AGOSTO),
+    // O período de compras é de closingDay do Mês M-2 (ex: 30 JUN) até (closingDay + 1 ou 31) do Mês M-1 (ex: 31 JUL)
+    const selYear = selectedMonth.getFullYear();
+    const selMonth = selectedMonth.getMonth();
+
+    const startCycle = new Date(selYear, selMonth - 2, closingDay);
+    const endCycle = new Date(selYear, selMonth - 1, closingDay + 1);
 
     const filtered = transactions.filter(t => {
       const tDate = parseLocalDate(t.date);
-      return tDate.getMonth() === targetMonth && tDate.getFullYear() === targetYear;
+      return isWithinInterval(tDate, { start: startCycle, end: endCycle });
     });
 
     filtered
@@ -229,7 +237,7 @@ export default function CardsPage() {
         data[t.category] = (data[t.category] || 0) + t.value;
       });
     return Object.entries(data).map(([name, value]) => ({ name, value }));
-  }, [transactions, selectedMonth]);
+  }, [transactions, cards, selectedCardId, selectedMonth]);
 
   if (!isAuthReady || !user) return null;
 
@@ -243,13 +251,17 @@ export default function CardsPage() {
   };
 
   const selectedCard = cards.find(c => c.id === selectedCardId);
+  const closingDay = selectedCard?.closingDay || 10;
 
-  const targetMonth = selectedMonth.getMonth();
-  const targetYear = selectedMonth.getFullYear();
+  const selYear = selectedMonth.getFullYear();
+  const selMonth = selectedMonth.getMonth();
+
+  const cycleStart = new Date(selYear, selMonth - 2, closingDay);
+  const cycleEnd = new Date(selYear, selMonth - 1, closingDay + 1);
 
   const filteredTransactions = transactions.filter(t => {
     const tDate = parseLocalDate(t.date);
-    const matchesMonth = tDate.getMonth() === targetMonth && tDate.getFullYear() === targetYear;
+    const matchesMonth = isWithinInterval(tDate, { start: cycleStart, end: cycleEnd });
     if (!matchesMonth) return false;
 
     const searchLower = searchTerm.toLowerCase();
