@@ -58,8 +58,8 @@ export default function CardsPage() {
       if (card) {
         const now = new Date();
         const closingDay = card.closingDay || 10;
-        // Se hoje for após o fechamento, a fatura em aberto é a do próximo mês
-        if (now.getDate() > closingDay) {
+        // Se hoje for >= fechamento, a fatura em aberto é a do próximo mês
+        if (now.getDate() >= closingDay) {
           setSelectedMonth(addMonths(now, 1));
         } else {
           setSelectedMonth(now);
@@ -114,8 +114,8 @@ export default function CardsPage() {
       const selectedCard = cards.find(c => c.id === selectedCardId);
       const closingDay = selectedCard?.closingDay || 10;
       
-      const cycleEnd = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), closingDay);
-      const cycleStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1, closingDay + 1);
+      const cycleEnd = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), closingDay - 1);
+      const cycleStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1, closingDay);
       
       const from = format(cycleStart, 'yyyy-MM-dd');
       const to = format(cycleEnd, 'yyyy-MM-dd');
@@ -219,8 +219,8 @@ export default function CardsPage() {
     
     const filtered = transactions.filter(t => {
       const tDate = parseLocalDate(t.date);
-      const end = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), closingDay);
-      const start = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1, closingDay + 1);
+      const end = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), closingDay - 1);
+      const start = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1, closingDay);
       return isWithinInterval(tDate, { start, end });
     });
 
@@ -247,8 +247,8 @@ export default function CardsPage() {
   const closingDay = selectedCard?.closingDay || 10;
 
   // Calculate the billing cycle for the selected month
-  const cycleEnd = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), closingDay);
-  const cycleStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1, closingDay + 1);
+  const cycleEnd = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), closingDay - 1);
+  const cycleStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1, closingDay);
 
   const filteredTransactions = transactions.filter(t => {
     const tDate = parseLocalDate(t.date);
@@ -256,17 +256,17 @@ export default function CardsPage() {
     if (!matchesMonth) return false;
 
     const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = !searchTerm || ((t.entityName || '').toLowerCase()).includes(searchLower) || 
+    const matchesSearch = !searchTerm || 
+                          ((t.entityName || '').toLowerCase()).includes(searchLower) || 
                           ((t.category || '').toLowerCase()).includes(searchLower) ||
                           ((t.description || '').toLowerCase()).includes(searchLower) ||
                           (t.value || '').toString().includes(searchLower) ||
+                          formatCurrency(t.value || 0).toLowerCase().includes(searchLower) ||
                           format(tDate, 'dd/MM/yyyy').includes(searchLower);
     
     const matchesCategory = selectedCategory === 'todas' || t.category === selectedCategory;
-    const matchesMin = !minValue || Number(t.value) >= parseFloat(minValue);
-    const matchesMax = !maxValue || Number(t.value) <= parseFloat(maxValue);
 
-    return matchesSearch && matchesCategory && matchesMin && matchesMax;
+    return matchesSearch && matchesCategory;
   });
 
   const totalInvoice = filteredTransactions.reduce((acc: number, t: any) => acc + t.value, 0);
@@ -534,28 +534,12 @@ export default function CardsPage() {
                           ))}
                         </select>
 
-                        {/* Filtros por Valor Mín/Máx */}
-                        <input
-                          type="number"
-                          placeholder="Mín R$"
-                          value={minValue}
-                          onChange={(e) => setMinValue(e.target.value)}
-                          className="w-20 px-3 py-2 bg-surface-container-high border-none rounded-xl text-xs font-bold focus:ring-2 focus:ring-primary/20"
-                        />
-                        <input
-                          type="number"
-                          placeholder="Máx R$"
-                          value={maxValue}
-                          onChange={(e) => setMaxValue(e.target.value)}
-                          className="w-20 px-3 py-2 bg-surface-container-high border-none rounded-xl text-xs font-bold focus:ring-2 focus:ring-primary/20"
-                        />
-
-                        {/* Filtro por Texto */}
-                        <div className="relative min-w-[150px]">
+                        {/* Campo Unificado de Busca (Nome, Categoria, Descrição, Valor) */}
+                        <div className="relative min-w-[200px]">
                           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" size={14} />
                           <input
                             type="text"
-                            placeholder="Buscar..."
+                            placeholder="Buscar por nome, valor..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="pl-9 pr-3 py-2 bg-surface-container-high border-none rounded-xl text-xs font-bold focus:ring-2 focus:ring-primary/20 w-full"
