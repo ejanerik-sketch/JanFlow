@@ -1615,16 +1615,21 @@ function TransactionsContent() {
                         {errors.installments && <p className="text-[10px] text-error font-bold ml-1">{errors.installments.message}</p>}
                       </div>
 
-                      {(paymentMethod === 'financiamento' || paymentMethod === 'cartao_credito') && (
-                        <div className="space-y-2">
-                          <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Data da Primeira Parcela</label>
-                          <input
-                            type="date"
-                            {...register('firstInstallmentDate')}
-                            className="w-full px-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20"
-                          />
-                        </div>
-                      )}
+                  {(paymentMethod === 'cartao_credito' || paymentMethod === 'financiamento') && (
+                    <div className="space-y-2 col-span-full md:col-span-1">
+                      <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">
+                        Data da Mês / Fatura (1ª Parcela)
+                      </label>
+                      <input
+                        type="date"
+                        {...register('firstInstallmentDate')}
+                        className="w-full px-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20"
+                      />
+                      <p className="text-[10px] text-on-surface-variant font-medium ml-1">
+                        Selecione a data/mês da fatura em que este lançamento deve entrar.
+                      </p>
+                    </div>
+                  )}
 
                       {/* Installment Visualization */}
                       {installmentPreview.length > 0 && (
