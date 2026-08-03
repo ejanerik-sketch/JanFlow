@@ -162,16 +162,16 @@ function TransactionsContent() {
     }
   }, [watchedIsShared, watchedSharedWith, watchedValue, iParticipate]);
 
-  // Synchronize year and month selector with selected transaction date
+  // Synchronize year and month selector with selected transaction date (apenas para novos lançamentos)
   useEffect(() => {
-    if (watchedDate && !recurrentMonthsTouched) {
+    if (watchedDate && !recurrentMonthsTouched && !editingTransaction) {
       const parsedDate = parseLocalDate(watchedDate);
       if (!isNaN(parsedDate.getTime())) {
         setValue('recurrentYear', parsedDate.getFullYear());
         setValue('recurrentMonths', [parsedDate.getMonth()]);
       }
     }
-  }, [watchedDate, setValue, recurrentMonthsTouched]);
+  }, [watchedDate, setValue, recurrentMonthsTouched, editingTransaction]);
 
   useEffect(() => {
     if (transactionType === 'receita' && !isBusiness && paymentMethod === 'cartao_credito') {
