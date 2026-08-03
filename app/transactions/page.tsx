@@ -1035,7 +1035,12 @@ function TransactionsContent() {
     return ids;
   }, [filteredTransactions]);
 
-  if (!isAuthReady || !user) return null;
+  const totalFilteredValue = React.useMemo(() => {
+    return filteredTransactions.reduce((acc, t) => {
+      const val = t.userPortion !== undefined ? t.userPortion : t.value;
+      return acc + (Number(val) || 0);
+    }, 0);
+  }, [filteredTransactions]);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -1233,7 +1238,17 @@ function TransactionsContent() {
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant whitespace-nowrap">Entidade / Descrição</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant whitespace-nowrap">Categoria</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant whitespace-nowrap">Status</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant whitespace-nowrap">Valor</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant whitespace-nowrap">
+                    <div>Valor</div>
+                    {filterType !== 'todos' && (
+                      <div className={cn(
+                        "text-xs font-black normal-case tracking-normal mt-0.5",
+                        filterType === 'receita' ? "text-success" : "text-error"
+                      )}>
+                        Total: {formatCurrency(totalFilteredValue)}
+                      </div>
+                    )}
+                  </th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant text-right whitespace-nowrap">Ações</th>
                 </tr>
               </thead>
@@ -1352,10 +1367,18 @@ function TransactionsContent() {
             </table>
           </div>
           
-          <div className="px-6 py-4 bg-surface-container-low border-t border-outline-variant/20 flex items-center justify-between">
+          <div className="px-6 py-4 bg-surface-container-low border-t border-outline-variant/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <p className="text-xs font-bold text-on-surface-variant">
               Mostrando <span className="text-on-surface">{filteredTransactions.length}</span> resultados
             </p>
+            {filterType !== 'todos' && (
+              <p className="text-xs font-black text-on-surface-variant">
+                Total do Filtro ({filterType === 'receita' ? 'Receitas' : 'Despesas'}):{' '}
+                <span className={filterType === 'receita' ? "text-success font-black text-sm" : "text-error font-black text-sm"}>
+                  {formatCurrency(totalFilteredValue)}
+                </span>
+              </p>
+            )}
           </div>
         </div>
 
