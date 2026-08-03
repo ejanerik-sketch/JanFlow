@@ -25,7 +25,8 @@ import {
   Upload,
   RefreshCw,
   CreditCard,
-  Building
+  Building,
+  AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { localDB } from '@/lib/localDB';
@@ -990,6 +991,31 @@ function TransactionsContent() {
     return matchesSearch && matchesType && matchesCategory && matchesStatus && matchesPaymentMethod && matchesCard;
   });
 
+  const duplicateIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    for (let i = 0; i < filteredTransactions.length; i++) {
+      for (let j = i + 1; j < filteredTransactions.length; j++) {
+        const a = filteredTransactions[i];
+        const b = filteredTransactions[j];
+
+        const sameDate = a.date === b.date;
+        const sameValue = Math.abs(Number(a.value) - Number(b.value)) < 0.01;
+
+        const nameA = (a.entityName || '').toLowerCase().trim();
+        const nameB = (b.entityName || '').toLowerCase().trim();
+
+        const isNameSimilar = nameA === nameB || 
+                              (nameA.length > 3 && nameB.length > 3 && (nameA.includes(nameB) || nameB.includes(nameA)));
+
+        if (sameDate && sameValue && isNameSimilar) {
+          ids.add(a.id);
+          ids.add(b.id);
+        }
+      }
+    }
+    return ids;
+  }, [filteredTransactions]);
+
   if (!isAuthReady || !user) return null;
 
   const formatCurrency = (val: number) => {
@@ -1160,6 +1186,25 @@ function TransactionsContent() {
         </div>
 
         {/* Transactions Table */}
+        {duplicateIds.size > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-3 text-amber-600 mb-4"
+          >
+            <motion.div
+              animate={{ scale: [1, 1.2, 1] }}
+              transition={{ repeat: Infinity, duration: 1.5 }}
+            >
+              <AlertTriangle size={20} className="shrink-0" />
+            </motion.div>
+            <div className="text-xs font-bold">
+              <p className="font-black uppercase tracking-wider text-[11px]">Possível Lançamento Duplicado Detectado!</p>
+              <p className="opacity-90 font-medium">Identificamos lançamentos com a mesma data, mesmo valor e nomes semelhantes. Confira as linhas destacadas.</p>
+            </div>
+          </motion.div>
+        )}
+
         <div className="bg-surface-container-lowest rounded-[32px] border border-outline-variant/20 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
@@ -1175,29 +1220,47 @@ function TransactionsContent() {
               </thead>
               <tbody className="divide-y divide-outline-variant/10">
                 {filteredTransactions.length > 0 ? (
-                  filteredTransactions.map((t) => (
-                    <tr key={t.id} className="hover:bg-surface-container-low/50 transition-colors group">
-                      <td className="px-6 py-5">
-                        <p className="text-sm font-bold text-on-surface">{format(parseLocalDate(t.date), 'dd/MM/yyyy')}</p>
-                        {t.recurrent && <span className="text-[9px] font-black text-primary uppercase tracking-tighter">Recorrente</span>}
-                      </td>
-                      <td className="px-6 py-5">
-                        <div className="flex items-center gap-3">
-                          <div className={cn(
-                            "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
-                            t.type === 'receita' ? "bg-success/10 text-success" : "bg-error/10 text-error"
-                          )}>
-                            {t.type === 'receita' ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-sm font-bold text-on-surface">{t.entityName}</p>
-                              {t.currentInstallment && t.installments > 1 && (
-                                <span className="text-[9px] font-black bg-surface-container-highest px-2 py-0.5 rounded-full text-on-surface-variant whitespace-nowrap">
-                                  {t.currentInstallment}/{t.installments}
-                                </span>
-                              )}
+                  filteredTransactions.map((t) => {
+                    const isDuplicate = duplicateIds.has(t.id);
+                    return (
+                      <tr 
+                        key={t.id} 
+                        className={cn(
+                          "transition-colors group",
+                          isDuplicate ? "bg-amber-500/10 hover:bg-amber-500/20" : "hover:bg-surface-container-low/50"
+                        )}
+                      >
+                        <td className="px-6 py-5">
+                          <p className="text-sm font-bold text-on-surface">{format(parseLocalDate(t.date), 'dd/MM/yyyy')}</p>
+                          {t.recurrent && <span className="text-[9px] font-black text-primary uppercase tracking-tighter">Recorrente</span>}
+                        </td>
+                        <td className="px-6 py-5">
+                          <div className="flex items-center gap-3">
+                            <div className={cn(
+                              "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
+                              t.type === 'receita' ? "bg-success/10 text-success" : "bg-error/10 text-error"
+                            )}>
+                              {t.type === 'receita' ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
                             </div>
+                            <div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-bold text-on-surface">{t.entityName}</p>
+                                {isDuplicate && (
+                                  <motion.span 
+                                    animate={{ opacity: [0.6, 1, 0.6], scale: [0.98, 1.02, 0.98] }}
+                                    transition={{ repeat: Infinity, duration: 1.5 }}
+                                    className="text-[9px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-amber-500 text-black flex items-center gap-1 shadow-sm"
+                                  >
+                                    <AlertTriangle size={10} />
+                                    Possível Duplicado
+                                  </motion.span>
+                                )}
+                                {t.currentInstallment && t.installments > 1 && (
+                                  <span className="text-[9px] font-black bg-surface-container-highest px-2 py-0.5 rounded-full text-on-surface-variant whitespace-nowrap">
+                                    {t.currentInstallment}/{t.installments}
+                                  </span>
+                                )}
+                              </div>
                             <p className="text-xs text-on-surface-variant font-medium truncate max-w-[200px]">{t.description || '-'}</p>
                             {t.sharedWith && (
                               <p className="text-[10px] text-primary font-bold mt-1">
@@ -1254,7 +1317,8 @@ function TransactionsContent() {
                         </div>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 ) : (
                   <tr>
                     <td colSpan={6} className="px-6 py-20 text-center">

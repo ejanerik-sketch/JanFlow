@@ -20,7 +20,8 @@ import {
   Building2,
   UserCircle2,
   Calendar,
-  PieChart as PieChartIcon
+  PieChart as PieChartIcon,
+  AlertTriangle
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { localDB } from '@/lib/localDB';
@@ -264,6 +265,31 @@ export default function CardsPage() {
 
     return matchesSearch && matchesCategory;
   });
+
+  const duplicateIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    for (let i = 0; i < filteredTransactions.length; i++) {
+      for (let j = i + 1; j < filteredTransactions.length; j++) {
+        const a = filteredTransactions[i];
+        const b = filteredTransactions[j];
+
+        const sameDate = a.date === b.date;
+        const sameValue = Math.abs(Number(a.value) - Number(b.value)) < 0.01;
+
+        const nameA = (a.entityName || '').toLowerCase().trim();
+        const nameB = (b.entityName || '').toLowerCase().trim();
+
+        const isNameSimilar = nameA === nameB || 
+                              (nameA.length > 3 && nameB.length > 3 && (nameA.includes(nameB) || nameB.includes(nameA)));
+
+        if (sameDate && sameValue && isNameSimilar) {
+          ids.add(a.id);
+          ids.add(b.id);
+        }
+      }
+    }
+    return ids;
+  }, [filteredTransactions]);
 
   const totalInvoice = filteredTransactions.reduce((acc: number, t: any) => acc + t.value, 0);
 
@@ -544,31 +570,71 @@ export default function CardsPage() {
                       </div>
                     </div>
 
+                    {duplicateIds.size > 0 && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-3 text-amber-600"
+                      >
+                        <motion.div
+                          animate={{ scale: [1, 1.2, 1] }}
+                          transition={{ repeat: Infinity, duration: 1.5 }}
+                        >
+                          <AlertTriangle size={20} className="shrink-0" />
+                        </motion.div>
+                        <div className="text-xs font-bold">
+                          <p className="font-black uppercase tracking-wider text-[11px]">Possível Lançamento Duplicado Detectado!</p>
+                          <p className="opacity-90 font-medium">Identificamos compras com mesma data, valor e nomes parecidos nesta fatura. Verifique os itens marcados abaixo.</p>
+                        </div>
+                      </motion.div>
+                    )}
+
                     <div className="space-y-4">
                       {filteredTransactions.length > 0 ? (
-                        filteredTransactions.map((t) => (
-                          <div key={t.id} className="flex items-center justify-between p-4 rounded-2xl hover:bg-surface-container-low transition-colors group">
-                            <div className="flex items-center gap-4">
-                              <div className="w-10 h-10 bg-error/10 text-error rounded-xl flex items-center justify-center">
-                                <ArrowDownRight size={18} />
-                              </div>
-                              <div>
-                                <p className="font-bold text-on-surface">{t.entityName}</p>
-                                <div className="flex items-center gap-2">
-                                  <p className="text-xs text-on-surface-variant font-medium">{t.category} • {format(parseLocalDate(t.date), 'dd MMM', { locale: ptBR })}</p>
-                                  {t.currentInstallment && t.installments > 1 && (
-                                    <span className="text-[10px] font-black bg-surface-container-highest px-2 py-0.5 rounded-full text-on-surface-variant">
-                                      Parcela {t.currentInstallment}/{t.installments}
-                                    </span>
-                                  )}
+                        filteredTransactions.map((t) => {
+                          const isDuplicate = duplicateIds.has(t.id);
+                          return (
+                            <div 
+                              key={t.id} 
+                              className={cn(
+                                "flex items-center justify-between p-4 rounded-2xl transition-colors group relative overflow-hidden",
+                                isDuplicate ? "bg-amber-500/10 border-2 border-amber-500/40 hover:bg-amber-500/15" : "hover:bg-surface-container-low"
+                              )}
+                            >
+                              <div className="flex items-center gap-4">
+                                <div className="w-10 h-10 bg-error/10 text-error rounded-xl flex items-center justify-center shrink-0">
+                                  <ArrowDownRight size={18} />
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="font-bold text-on-surface">{t.entityName}</p>
+                                    {isDuplicate && (
+                                      <motion.span 
+                                        animate={{ opacity: [0.6, 1, 0.6], scale: [0.98, 1.02, 0.98] }}
+                                        transition={{ repeat: Infinity, duration: 1.5 }}
+                                        className="text-[9px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-amber-500 text-black flex items-center gap-1 shadow-sm"
+                                      >
+                                        <AlertTriangle size={10} />
+                                        Possível Duplicado
+                                      </motion.span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-xs text-on-surface-variant font-medium">{t.category} • {format(parseLocalDate(t.date), 'dd MMM', { locale: ptBR })}</p>
+                                    {t.currentInstallment && t.installments > 1 && (
+                                      <span className="text-[10px] font-black bg-surface-container-highest px-2 py-0.5 rounded-full text-on-surface-variant">
+                                        Parcela {t.currentInstallment}/{t.installments}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
+                              <div className="text-right">
+                                <p className="font-black text-error">- {formatCurrency(t.value)}</p>
+                              </div>
                             </div>
-                            <div className="text-right">
-                              <p className="font-black text-error">- {formatCurrency(t.value)}</p>
-                            </div>
-                          </div>
-                        ))
+                          );
+                        })
                       ) : (
                         <div className="py-20 text-center opacity-40">
                           <p className="font-bold">Nenhum lançamento nesta fatura.</p>
