@@ -544,6 +544,7 @@ function TransactionsContent() {
         uid: user.uid,
         context,
         firstInstallmentDate: toDbDate(data.firstInstallmentDate),
+        purchaseDate: toDbDate(data.date),
       };
 
       // Ensure we don't overwrite createdAt when editing
@@ -684,6 +685,7 @@ function TransactionsContent() {
               });
             } else {
               const originalDay = parseLocalDate(data.date).getDate();
+              const groupId = Math.random().toString(36).substr(2, 9);
               const arr = months.map((mIndex: number) => {
                 const lastDay = new Date(year, mIndex + 1, 0).getDate();
                 const targetDay = Math.min(originalDay, lastDay);
@@ -691,6 +693,7 @@ function TransactionsContent() {
                 
                 return {
                   ...basePayload,
+                  groupId,
                   date: toDbDate(format(targetDate, 'yyyy-MM-dd'))!,
                   renewalDate: data.renewalDate 
                     ? toDbDate(format(new Date(year, mIndex, Math.min(parseLocalDate(data.renewalDate).getDate(), lastDay), 12, 0, 0), 'yyyy-MM-dd')) 
@@ -764,10 +767,11 @@ function TransactionsContent() {
     try {
       const targetTx = allTransactions.find((t: any) => t.id === deleteConfirmId);
       
-      if (targetTx && (targetTx.groupId || (targetTx.installments && targetTx.installments > 1))) {
+      if (targetTx && (targetTx.groupId || (targetTx.installments && targetTx.installments > 1) || targetTx.recurrent)) {
         const related = allTransactions.filter((t: any) => 
           (targetTx.groupId && t.groupId === targetTx.groupId) ||
-          (!targetTx.groupId && t.entityName === targetTx.entityName && t.installments === targetTx.installments &&
+          (!targetTx.groupId && t.entityName === targetTx.entityName && 
+           ((t.installments === targetTx.installments && t.installments > 1) || (t.recurrent && targetTx.recurrent)) &&
            Math.abs(new Date(t.createdAt).getTime() - new Date(targetTx.createdAt).getTime()) < 10000)
         );
 
@@ -875,9 +879,9 @@ function TransactionsContent() {
       sharedWith: safeTx.sharedWith,
       entityName: cleanEntityName,
       value: Number(safeTx.installments || 1) > 1 ? Number(safeTx.value) * Number(safeTx.installments) : safeTx.value,
-      date: getDateString(safeTx.date),
+      date: safeTx.purchaseDate ? getDateString(safeTx.purchaseDate) : getDateString(safeTx.date),
       renewalDate: safeTx.renewalDate ? getDateString(safeTx.renewalDate) : undefined,
-      firstInstallmentDate: safeTx.firstInstallmentDate ? getDateString(safeTx.firstInstallmentDate) : undefined,
+      firstInstallmentDate: safeTx.firstInstallmentDate ? getDateString(safeTx.firstInstallmentDate) : getDateString(safeTx.date),
       isShared: !!safeTx.sharedWith,
       installments: Number(safeTx.installments || 1),
     } as any);
@@ -886,6 +890,15 @@ function TransactionsContent() {
 
   useEffect(() => {
     const editId = searchParams.get('editId') || searchParams.get('edit');
+    const monthParam = searchParams.get('month');
+    
+    if (monthParam && !editingTransaction) {
+      const parsedMonth = parseLocalDate(monthParam);
+      if (!isNaN(parsedMonth.getTime())) {
+        setSelectedMonth(parsedMonth);
+      }
+    }
+
     if (editId && allTransactions.length > 0 && !editingTransaction && !isModalOpen) {
       const tx = allTransactions.find((t: any) => t.id === editId);
       if (tx) {
@@ -2191,7 +2204,11 @@ function TransactionsContent() {
               <div>
                 <h3 className="text-xl font-black text-on-surface">Confirmar Exclusão</h3>
                 <p className="text-sm text-on-surface-variant font-medium mt-2">
-                  Tem certeza que deseja excluir este lançamento? Esta ação não pode ser desfeita.
+                  {allTransactions.find((t: any) => t.id === deleteConfirmId)?.groupId || 
+                   allTransactions.find((t: any) => t.id === deleteConfirmId)?.recurrent || 
+                   (allTransactions.find((t: any) => t.id === deleteConfirmId)?.installments > 1)
+                    ? "Atenção: Este lançamento faz parte de um grupo (parcelas ou assinatura recorrente). Ao confirmar, TODAS as parcelas ou recorrências futuras vinculadas a esta compra também serão excluídas do sistema. Deseja continuar?"
+                    : "Tem certeza que deseja excluir este lançamento? Esta ação não pode ser desfeita."}
                 </p>
               </div>
               <div className="flex gap-4">

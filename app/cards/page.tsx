@@ -660,7 +660,7 @@ export default function CardsPage() {
                                   <p className="font-black text-error">- {formatCurrency(t.value)}</p>
                                 </div>
                                 <button
-                                  onClick={() => router.push(`/transactions?editId=${t.id}`)}
+                                  onClick={() => router.push(`/transactions?editId=${t.id}&month=${t.date}`)}
                                   title="Abrir no Lançamento"
                                   className="p-2 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-xl transition-all"
                                 >

@@ -26,6 +26,24 @@
 }
 
 @layer base {
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-surface: #101414;
+      --color-on-surface: #e1e3e3;
+      --color-on-surface-variant: #bfc8c9;
+      --color-surface-container-lowest: #0b0f0f;
+      --color-surface-container-low: #151a1a;
+      --color-surface-container-high: #21292a;
+      --color-surface-container-highest: #2b3536;
+      --color-outline: #899394;
+      --color-outline-variant: #3f494a;
+      --color-primary-container: #004f56;
+      --color-on-primary-container: #9cf0fb;
+      --color-secondary-container: #832500;
+      --color-on-secondary-container: #ffdad0;
+    }
+  }
+
   body {
     @apply bg-surface text-on-surface font-sans antialiased;
   }
