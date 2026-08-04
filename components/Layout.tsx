@@ -25,7 +25,9 @@ import {
   Database,
   Wifi,
   WifiOff,
-  History
+  History,
+  Moon,
+  Sun
 } from 'lucide-react';
 import { useAppContext } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
@@ -142,6 +144,30 @@ export default function Layout({ children }: LayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
+
+  useEffect(() => {
+    // Check initial preference
+    const savedTheme = localStorage.getItem('janflow_theme');
+    if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      setIsDarkMode(true);
+      document.documentElement.classList.add('dark');
+    }
+  }, []);
+
+  const toggleDarkMode = () => {
+    setIsDarkMode((prev) => {
+      const newMode = !prev;
+      if (newMode) {
+        document.documentElement.classList.add('dark');
+        localStorage.setItem('janflow_theme', 'dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+        localStorage.setItem('janflow_theme', 'light');
+      }
+      return newMode;
+    });
+  };
 
   useEffect(() => {
     if (isAuthReady && !user) {
@@ -244,6 +270,13 @@ export default function Layout({ children }: LayoutProps) {
               <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Sincronizado</span>
             </div>
 
+            <button
+              onClick={toggleDarkMode}
+              className="p-2 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-full transition-colors"
+              title={isDarkMode ? "Mudar para modo claro" : "Mudar para modo escuro"}
+            >
+              {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
             <Reminders />
             <button 
               onClick={async () => {

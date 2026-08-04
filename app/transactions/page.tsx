@@ -262,6 +262,8 @@ function TransactionsContent() {
           uid: user.uid,
           context,
           date: toDbDate(format(newDate, 'yyyy-MM-dd')),
+          purchaseDate: t.purchaseDate || t.date,
+          firstInstallmentDate: t.firstInstallmentDate || null,
           createdAt: new Date().toISOString()
         };
       });
@@ -640,7 +642,7 @@ function TransactionsContent() {
               await localDB.save('transactions', {
                 ...basePayload,
                 id: editingTransaction.id,
-                date: toDbDate(data.date),
+                date: toDbDate(((data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate) ? data.firstInstallmentDate : data.date),
                 renewalDate: toDbDate(data.renewalDate),
                 value: data.value,
               });
@@ -684,7 +686,10 @@ function TransactionsContent() {
                 renewalDate: toDbDate(data.renewalDate),
               });
             } else {
-              const originalDay = parseLocalDate(data.date).getDate();
+              const baseRecurrentDate = ((data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate) 
+                ? data.firstInstallmentDate 
+                : data.date;
+              const originalDay = parseLocalDate(baseRecurrentDate).getDate();
               const groupId = Math.random().toString(36).substr(2, 9);
               const arr = months.map((mIndex: number) => {
                 const lastDay = new Date(year, mIndex + 1, 0).getDate();
