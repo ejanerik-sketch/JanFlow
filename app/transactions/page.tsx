@@ -715,9 +715,9 @@ function TransactionsContent() {
             });
           }
           triggerRefresh();
-        } catch (error) {
+        } catch (error: any) {
           console.error('Erro no salvamento em background:', error);
-          alert('Houve um erro ao salvar o lançamento no servidor. A tela será recarregada.');
+          alert(`Houve um erro ao salvar o lançamento no servidor: ${error.message || 'Desconhecido'}. A tela será recarregada.`);
           triggerRefresh();
         }
       })();
