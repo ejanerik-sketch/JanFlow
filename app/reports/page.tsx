@@ -135,7 +135,12 @@ export default function ReportsPage() {
       const start = viewMode === 'mensal' ? startOfMonth(selectedMonth) : startOfYear(selectedMonth);
       const end = viewMode === 'mensal' ? endOfMonth(selectedMonth) : endOfYear(selectedMonth);
 
-      const rawAllTrans = await localDB.get('transactions', user.uid, context);
+      const fetchStart = startOfYear(selectedMonth);
+      const fetchEnd = endOfYear(selectedMonth);
+      const from = format(fetchStart, 'yyyy-MM-dd');
+      const to = format(fetchEnd, 'yyyy-MM-dd');
+
+      const rawAllTrans = await localDB.get('transactions', user.uid, context, { from, to });
       const allTrans = rawAllTrans.map((t: any) => {
         let userPortion = t.value;
         if (t.isShared && t.sharedSplit) {
