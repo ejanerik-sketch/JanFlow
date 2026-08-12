@@ -669,17 +669,17 @@ export default function ClientsPage() {
                 exit={{ opacity: 0, scale: 0.9 }}
                 className="bg-surface-container-lowest p-6 rounded-3xl border border-outline-variant/30 shadow-sm hover:shadow-md transition-all group"
               >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
+                <div className="flex flex-col gap-4 mb-4">
+                  <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
                       <Building size={24} />
                     </div>
                     <div>
-                      <h3 className="font-bold text-on-surface line-clamp-1">{c.companyName}</h3>
+                      <h3 className="font-bold text-on-surface whitespace-normal break-words">{c.companyName}</h3>
                       <p className="text-xs text-on-surface-variant font-medium">{c.cnpj || 'Sem CNPJ'}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center justify-end gap-2 border-t border-outline-variant/10 pt-3">
                     <button 
                       onClick={() => router.push(`/transactions?search=${encodeURIComponent(c.companyName)}`)}
                       title="Ver Histórico de Lançamentos"
@@ -957,6 +957,14 @@ export default function ClientsPage() {
                           <input
                             type="date"
                             id="newRenewalDate"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const input = document.getElementById('newRenewalDate') as HTMLInputElement;
+                                handleAddRenewal(input.value);
+                                input.value = '';
+                              }
+                            }}
                             className="flex-1 px-4 py-2 bg-surface-container-lowest border-none rounded-xl text-xs font-bold"
                           />
                           <button
@@ -1001,26 +1009,30 @@ export default function ClientsPage() {
                       </h3>
                       
                       <div className="bg-surface-container-high p-4 rounded-2xl space-y-4">
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                          <input
-                            type="date"
-                            value={newPayment.date}
-                            onChange={(e) => setNewPayment({...newPayment, date: e.target.value})}
-                            className="px-4 py-2 bg-surface-container-lowest border-none rounded-xl text-xs font-bold"
-                          />
-                          <input
-                            type="text"
-                            placeholder="Serviço"
-                            value={newPayment.service}
-                            onChange={(e) => setNewPayment({...newPayment, service: e.target.value})}
-                            className="px-4 py-2 bg-surface-container-lowest border-none rounded-xl text-xs font-bold"
-                          />
-                          <div className="flex gap-2">
+                        <div className="flex flex-col gap-3">
+                          <div className="flex gap-3">
+                            <input
+                              type="date"
+                              value={newPayment.date}
+                              onChange={(e) => setNewPayment({...newPayment, date: e.target.value})}
+                              className="flex-1 px-4 py-2 bg-surface-container-lowest border-none rounded-xl text-xs font-bold"
+                            />
                             <input
                               type="number"
-                              placeholder="Valor"
+                              placeholder="Valor (R$)"
                               value={newPayment.value}
                               onChange={(e) => setNewPayment({...newPayment, value: e.target.value})}
+                              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddPayment(); } }}
+                              className="flex-1 px-4 py-2 bg-surface-container-lowest border-none rounded-xl text-xs font-bold"
+                            />
+                          </div>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="Serviço"
+                              value={newPayment.service}
+                              onChange={(e) => setNewPayment({...newPayment, service: e.target.value})}
+                              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddPayment(); } }}
                               className="flex-1 px-4 py-2 bg-surface-container-lowest border-none rounded-xl text-xs font-bold"
                             />
                             <button
