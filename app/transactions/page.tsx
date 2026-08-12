@@ -1135,7 +1135,7 @@ function TransactionsContent() {
 
         {/* Filters & Search */}
         <div className="bg-surface-container-lowest p-4 rounded-[24px] border border-outline-variant/20 shadow-sm flex flex-col lg:flex-row items-center gap-4">
-          <div className="relative flex-1 w-full flex items-center gap-2">
+          <div className="relative w-full lg:w-auto flex-1 min-w-[250px] flex items-center gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" size={20} />
               <input
@@ -1143,8 +1143,16 @@ function TransactionsContent() {
                 placeholder="Pesquisar por entidade ou descrição..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary/20 transition-all"
+                className="w-full pl-12 pr-10 py-3 bg-surface-container-high border-none rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary/20 transition-all"
               />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface"
+                >
+                  <X size={16} />
+                </button>
+              )}
             </div>
             <button
               onClick={() => setIsGlobalSearch(!isGlobalSearch)}
@@ -1236,6 +1244,21 @@ function TransactionsContent() {
               )}
             >
               Despesas
+            </button>
+            <button
+              onClick={() => {
+                setSearchTerm('');
+                setIsGlobalSearch(false);
+                setFilterType('todos');
+                setFilterCategory('todas');
+                setFilterStatus('todos');
+                setFilterPaymentMethod('todos');
+                setFilterCardId('todos');
+              }}
+              className="px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap bg-surface-container-high text-on-surface-variant hover:bg-outline-variant/20 transition-all"
+              title="Limpar Filtros"
+            >
+              Limpar Filtros
             </button>
             <div className="w-px h-6 bg-outline-variant/30 hidden lg:block"></div>
             <button 
