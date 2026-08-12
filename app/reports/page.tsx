@@ -282,10 +282,10 @@ export default function ReportsPage() {
   // Data processing for charts
   const categoryData = transactions.reduce((acc: any, t) => {
     if (t.type === 'despesa') {
-      const catObj = categories.find(c => c.name === t.category);
-      const existing = acc.find((item: any) => item.name === t.category);
+      const catObj = categories.find(c => c.name === (t.category || 'Outros'));
+      const existing = acc.find((item: any) => item.name === (t.category || 'Outros'));
       if (existing) existing.value += t.value;
-      else acc.push({ name: t.category, value: t.value, color: catObj?.color || '#94a3b8' });
+      else acc.push({ name: t.category || 'Outros', value: t.value, color: catObj?.color || '#94a3b8' });
     }
     return acc;
   }, []);
@@ -971,7 +971,7 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {viewMode === 'anual' ? (
+        {viewMode === 'anual' && (
           <div className="space-y-8">
             <div className="bg-surface-container-lowest p-8 rounded-[32px] border border-outline-variant/20 shadow-sm">
               <div className="flex items-center justify-between mb-8">
@@ -1088,14 +1088,15 @@ export default function ReportsPage() {
               </div>
             </div>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Daily Analysis */}
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Daily/Monthly Analysis */}
             <div className="bg-surface-container-lowest p-8 rounded-[32px] border border-outline-variant/20 shadow-sm">
               <div className="flex items-center justify-between mb-8">
                 <div>
-                  <h3 className="text-xl font-black text-on-surface">Análise Diária</h3>
-                  <p className="text-sm text-on-surface-variant font-medium">Fluxo de caixa ao longo do mês</p>
+                  <h3 className="text-xl font-black text-on-surface">{viewMode === 'anual' ? 'Análise Mensal' : 'Análise Diária'}</h3>
+                  <p className="text-sm text-on-surface-variant font-medium">Fluxo de caixa ao longo do {viewMode === 'anual' ? 'ano' : 'mês'}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="flex items-center gap-1.5">
@@ -1192,7 +1193,6 @@ export default function ReportsPage() {
               </div>
             </div>
           </div>
-        )}
 
         {/* Compras Parceladas */}
         <div className="bg-surface-container-lowest p-8 rounded-[32px] border border-outline-variant/20 shadow-sm">
