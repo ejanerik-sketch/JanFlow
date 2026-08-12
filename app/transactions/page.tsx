@@ -608,6 +608,78 @@ function TransactionsContent() {
                  };
               });
               await Promise.all(arr.map(t => localDB.save('transactions', t)));
+            } else if (editingTransaction.groupId && data.recurrent) {
+              const year = data.recurrentYear || parseLocalDate(data.date).getFullYear();
+              const sortedMonths = [...(data.recurrentMonths || [])].sort((a, b) => a - b);
+              const baseRecurrentDate = ((data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate) 
+                ? data.firstInstallmentDate 
+                : data.date;
+              const originalDay = parseLocalDate(baseRecurrentDate).getDate();
+
+              const existingTxs = await localDB.get('transactions', user.uid, context, { groupId: editingTransaction.groupId });
+              const existingMap = new Map();
+              existingTxs.forEach((t: any) => {
+                if (t.date) existingMap.set(parseLocalDate(t.date).getMonth(), t);
+              });
+
+              const toDeleteIds: string[] = [];
+              const toUpsert: any[] = [];
+              
+              const isInstallment = hasInstallments || (editingTransaction.installments && editingTransaction.installments > 1);
+              const totalInstallmentsStr = sortedMonths.length.toString().padStart(2, '0');
+
+              existingTxs.forEach((t: any) => {
+                const mIndex = parseLocalDate(t.date).getMonth();
+                if (!sortedMonths.includes(mIndex)) {
+                  toDeleteIds.push(t.id);
+                }
+              });
+
+              sortedMonths.forEach((mIndex: number, i: number) => {
+                const lastDay = new Date(year, mIndex + 1, 0).getDate();
+                const targetDay = Math.min(originalDay, lastDay);
+                const targetDate = new Date(year, mIndex, targetDay, 12, 0, 0);
+                
+                const instNumStr = (i + 1).toString().padStart(2, '0');
+                const desc = isInstallment ? `${finalEntityName} (${instNumStr}/${totalInstallmentsStr})` : finalEntityName;
+                const instVal = isInstallment ? (data.value / sortedMonths.length) : data.value;
+
+                const existingTx = existingMap.get(mIndex);
+                if (existingTx) {
+                  toUpsert.push({
+                    ...existingTx,
+                    ...basePayload,
+                    description: desc,
+                    value: instVal,
+                    installments: isInstallment ? sortedMonths.length : 1,
+                    currentInstallment: isInstallment ? (i + 1) : null,
+                    date: toDbDate(format(targetDate, 'yyyy-MM-dd'))!,
+                    renewalDate: data.renewalDate 
+                      ? toDbDate(format(new Date(year, mIndex, Math.min(parseLocalDate(data.renewalDate).getDate(), lastDay), 12, 0, 0), 'yyyy-MM-dd')) 
+                      : null,
+                  });
+                } else {
+                  toUpsert.push({
+                    ...basePayload,
+                    groupId: editingTransaction.groupId,
+                    description: desc,
+                    value: instVal,
+                    installments: isInstallment ? sortedMonths.length : 1,
+                    currentInstallment: isInstallment ? (i + 1) : null,
+                    date: toDbDate(format(targetDate, 'yyyy-MM-dd'))!,
+                    renewalDate: data.renewalDate 
+                      ? toDbDate(format(new Date(year, mIndex, Math.min(parseLocalDate(data.renewalDate).getDate(), lastDay), 12, 0, 0), 'yyyy-MM-dd')) 
+                      : null,
+                  });
+                }
+              });
+
+              if (toDeleteIds.length > 0) {
+                await localDB.deleteMany('transactions', toDeleteIds);
+              }
+              if (toUpsert.length > 0) {
+                await localDB.saveMany('transactions', toUpsert);
+              }
             } else if ((relatedInstallments.length > 0 && data.installments !== editingTransaction.installments) || (relatedInstallments.length === 0 && hasInstallments)) {
               if (relatedInstallments.length > 0) {
                 for (const t of relatedInstallments) {
@@ -640,66 +712,6 @@ function TransactionsContent() {
                  });
               }
               await localDB.saveMany('transactions', arr);
-            } else if (editingTransaction.groupId && data.recurrent) {
-              const year = data.recurrentYear || parseLocalDate(data.date).getFullYear();
-              const months = data.recurrentMonths || [];
-              const baseRecurrentDate = ((data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate) 
-                ? data.firstInstallmentDate 
-                : data.date;
-              const originalDay = parseLocalDate(baseRecurrentDate).getDate();
-
-              const existingTxs = await localDB.get('transactions', user.uid, context, { groupId: editingTransaction.groupId });
-              const existingMap = new Map();
-              existingTxs.forEach((t: any) => {
-                if (t.date) existingMap.set(parseLocalDate(t.date).getMonth(), t);
-              });
-
-              const toDeleteIds: string[] = [];
-              const toUpsert: any[] = [];
-
-              existingTxs.forEach((t: any) => {
-                const mIndex = parseLocalDate(t.date).getMonth();
-                if (!months.includes(mIndex)) {
-                  toDeleteIds.push(t.id);
-                } else {
-                  const lastDay = new Date(year, mIndex + 1, 0).getDate();
-                  const targetDay = Math.min(originalDay, lastDay);
-                  const targetDate = new Date(year, mIndex, targetDay, 12, 0, 0);
-
-                  toUpsert.push({
-                    ...t,
-                    ...basePayload,
-                    date: toDbDate(format(targetDate, 'yyyy-MM-dd'))!,
-                    renewalDate: data.renewalDate 
-                      ? toDbDate(format(new Date(year, mIndex, Math.min(parseLocalDate(data.renewalDate).getDate(), lastDay), 12, 0, 0), 'yyyy-MM-dd')) 
-                      : null,
-                  });
-                }
-              });
-
-              months.forEach((mIndex: number) => {
-                if (!existingMap.has(mIndex)) {
-                  const lastDay = new Date(year, mIndex + 1, 0).getDate();
-                  const targetDay = Math.min(originalDay, lastDay);
-                  const targetDate = new Date(year, mIndex, targetDay, 12, 0, 0);
-
-                  toUpsert.push({
-                    ...basePayload,
-                    groupId: editingTransaction.groupId,
-                    date: toDbDate(format(targetDate, 'yyyy-MM-dd'))!,
-                    renewalDate: data.renewalDate 
-                      ? toDbDate(format(new Date(year, mIndex, Math.min(parseLocalDate(data.renewalDate).getDate(), lastDay), 12, 0, 0), 'yyyy-MM-dd')) 
-                      : null,
-                  });
-                }
-              });
-
-              if (toDeleteIds.length > 0) {
-                await localDB.deleteMany('transactions', toDeleteIds);
-              }
-              if (toUpsert.length > 0) {
-                await localDB.saveMany('transactions', toUpsert);
-              }
             } else {
               await localDB.save('transactions', {
                 ...basePayload,
