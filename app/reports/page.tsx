@@ -281,7 +281,7 @@ export default function ReportsPage() {
 
   // Data processing for charts
   const categoryData = transactions.reduce((acc: any, t) => {
-    if (t.type === 'despesa') {
+    if (t.type !== 'receita') {
       const catObj = categories.find(c => c.name === (t.category || 'Outros'));
       const existing = acc.find((item: any) => item.name === (t.category || 'Outros'));
       if (existing) existing.value += t.value;
@@ -376,7 +376,7 @@ export default function ReportsPage() {
       if ((t.category || '').toLowerCase().includes('contrato') || (t.description || '').toLowerCase().includes('novo contrato')) {
         acc.new++;
       }
-    } else if (t.type === 'despesa') {
+    } else if (t.type !== 'receita') {
       if ((t.description || '').toLowerCase().includes('cancelamento') || (t.description || '').toLowerCase().includes('cancelado')) {
         acc.cancelled++;
       }
@@ -918,6 +918,110 @@ export default function ReportsPage() {
           )}
         </div>
 
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+          {/* Daily/Monthly Analysis */}
+            <div className="bg-surface-container-lowest p-8 rounded-[32px] border border-outline-variant/20 shadow-sm">
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h3 className="text-xl font-black text-on-surface">{viewMode === 'anual' ? 'Análise Mensal' : 'Análise Diária'}</h3>
+                  <p className="text-sm text-on-surface-variant font-medium">Fluxo de caixa ao longo do {viewMode === 'anual' ? 'ano' : 'mês'}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-3 h-3 rounded-full bg-success"></div>
+                    <span className="text-[10px] font-bold text-on-surface-variant uppercase">Receita</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-3 h-3 rounded-full bg-error"></div>
+                    <span className="text-[10px] font-bold text-on-surface-variant uppercase">Despesa</span>
+                  </div>
+                </div>
+              </div>
+              <div className="min-h-[300px] w-full">
+                <ResponsiveContainer width="100%" height={300} minWidth={1} minHeight={1}>
+                  <AreaChart data={dailyData}>
+                    <defs>
+                      <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="colorExp" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
+                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                    <XAxis 
+                      dataKey="day" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fontSize: 10, fontWeight: 'bold', fill: '#64748b' }} 
+                    />
+                    <YAxis 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fontSize: 10, fontWeight: 'bold', fill: '#64748b' }}
+                      tickFormatter={(value) => `R$ ${value}`}
+                    />
+                    <Tooltip 
+                      contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                      formatter={(value: any) => formatCurrency(value as number)}
+                    />
+                    <Area type="monotone" dataKey="receita" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorRev)" />
+                    <Area type="monotone" dataKey="despesa" stroke="#ef4444" strokeWidth={3} fillOpacity={1} fill="url(#colorExp)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Category Distribution */}
+            <div className="bg-surface-container-lowest p-8 rounded-[32px] border border-outline-variant/20 shadow-sm">
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h3 className="text-xl font-black text-on-surface">Distribuição por Categoria</h3>
+                  <p className="text-sm text-on-surface-variant font-medium">Onde você está gastando mais</p>
+                </div>
+                <PieChart size={24} className="text-on-surface-variant opacity-40" />
+              </div>
+              <div className="h-[300px] w-full flex flex-col md:flex-row items-center">
+                <div className="w-full md:w-1/2 min-h-[300px]">
+                  <ResponsiveContainer width="100%" height={300} minWidth={1} minHeight={1}>
+                    <RePieChart>
+                      <Pie
+                        data={categoryData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={100}
+                        paddingAngle={5}
+                        dataKey="value"
+                      >
+                        {categoryData.map((entry: any, index: number) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value: any) => formatCurrency(value as number)} />
+                    </RePieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="w-full md:w-1/2 space-y-3 mt-6 md:mt-0 px-4 max-h-[300px] overflow-y-auto">
+                  {categoryData.sort((a: any, b: any) => b.value - a.value).map((entry: any, index: number) => (
+                    <div key={index} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.color }}></div>
+                        <span className="text-xs font-bold text-on-surface">{entry.name}</span>
+                      </div>
+                      <span className="text-xs font-black text-on-surface-variant">{formatCurrency(entry.value)}</span>
+                    </div>
+                  ))}
+                  {categoryData.length === 0 && (
+                    <p className="text-xs text-on-surface-variant italic text-center py-4">Sem dados de gastos este mês.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
         {/* Cards and Installments Analysis */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Registered Cards */}
@@ -1089,110 +1193,6 @@ export default function ReportsPage() {
             </div>
           </div>
         )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Daily/Monthly Analysis */}
-            <div className="bg-surface-container-lowest p-8 rounded-[32px] border border-outline-variant/20 shadow-sm">
-              <div className="flex items-center justify-between mb-8">
-                <div>
-                  <h3 className="text-xl font-black text-on-surface">{viewMode === 'anual' ? 'Análise Mensal' : 'Análise Diária'}</h3>
-                  <p className="text-sm text-on-surface-variant font-medium">Fluxo de caixa ao longo do {viewMode === 'anual' ? 'ano' : 'mês'}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-3 h-3 rounded-full bg-success"></div>
-                    <span className="text-[10px] font-bold text-on-surface-variant uppercase">Receita</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-3 h-3 rounded-full bg-error"></div>
-                    <span className="text-[10px] font-bold text-on-surface-variant uppercase">Despesa</span>
-                  </div>
-                </div>
-              </div>
-              <div className="min-h-[300px] w-full">
-                <ResponsiveContainer width="100%" height={300} minWidth={1} minHeight={1}>
-                  <AreaChart data={dailyData}>
-                    <defs>
-                      <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                      </linearGradient>
-                      <linearGradient id="colorExp" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
-                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                    <XAxis 
-                      dataKey="day" 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{ fontSize: 10, fontWeight: 'bold', fill: '#64748b' }} 
-                    />
-                    <YAxis 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{ fontSize: 10, fontWeight: 'bold', fill: '#64748b' }}
-                      tickFormatter={(value) => `R$ ${value}`}
-                    />
-                    <Tooltip 
-                      contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                      formatter={(value: any) => formatCurrency(value as number)}
-                    />
-                    <Area type="monotone" dataKey="receita" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorRev)" />
-                    <Area type="monotone" dataKey="despesa" stroke="#ef4444" strokeWidth={3} fillOpacity={1} fill="url(#colorExp)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Category Distribution */}
-            <div className="bg-surface-container-lowest p-8 rounded-[32px] border border-outline-variant/20 shadow-sm">
-              <div className="flex items-center justify-between mb-8">
-                <div>
-                  <h3 className="text-xl font-black text-on-surface">Distribuição por Categoria</h3>
-                  <p className="text-sm text-on-surface-variant font-medium">Onde você está gastando mais</p>
-                </div>
-                <PieChart size={24} className="text-on-surface-variant opacity-40" />
-              </div>
-              <div className="h-[300px] w-full flex flex-col md:flex-row items-center">
-                <div className="w-full md:w-1/2 min-h-[300px]">
-                  <ResponsiveContainer width="100%" height={300} minWidth={1} minHeight={1}>
-                    <RePieChart>
-                      <Pie
-                        data={categoryData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={100}
-                        paddingAngle={5}
-                        dataKey="value"
-                      >
-                        {categoryData.map((entry: any, index: number) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value: any) => formatCurrency(value as number)} />
-                    </RePieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="w-full md:w-1/2 space-y-3 mt-6 md:mt-0 px-4 max-h-[300px] overflow-y-auto">
-                  {categoryData.sort((a: any, b: any) => b.value - a.value).map((entry: any, index: number) => (
-                    <div key={index} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.color }}></div>
-                        <span className="text-xs font-bold text-on-surface">{entry.name}</span>
-                      </div>
-                      <span className="text-xs font-black text-on-surface-variant">{formatCurrency(entry.value)}</span>
-                    </div>
-                  ))}
-                  {categoryData.length === 0 && (
-                    <p className="text-xs text-on-surface-variant italic text-center py-4">Sem dados de gastos este mês.</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
 
         {/* Compras Parceladas */}
         <div className="bg-surface-container-lowest p-8 rounded-[32px] border border-outline-variant/20 shadow-sm">
