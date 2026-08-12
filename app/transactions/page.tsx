@@ -640,6 +640,66 @@ function TransactionsContent() {
                  });
               }
               await localDB.saveMany('transactions', arr);
+            } else if (editingTransaction.groupId && data.recurrent) {
+              const year = data.recurrentYear || parseLocalDate(data.date).getFullYear();
+              const months = data.recurrentMonths || [];
+              const baseRecurrentDate = ((data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate) 
+                ? data.firstInstallmentDate 
+                : data.date;
+              const originalDay = parseLocalDate(baseRecurrentDate).getDate();
+
+              const existingTxs = await localDB.get('transactions', user.uid, context, { groupId: editingTransaction.groupId });
+              const existingMap = new Map();
+              existingTxs.forEach((t: any) => {
+                if (t.date) existingMap.set(parseLocalDate(t.date).getMonth(), t);
+              });
+
+              const toDeleteIds: string[] = [];
+              const toUpsert: any[] = [];
+
+              existingTxs.forEach((t: any) => {
+                const mIndex = parseLocalDate(t.date).getMonth();
+                if (!months.includes(mIndex)) {
+                  toDeleteIds.push(t.id);
+                } else {
+                  const lastDay = new Date(year, mIndex + 1, 0).getDate();
+                  const targetDay = Math.min(originalDay, lastDay);
+                  const targetDate = new Date(year, mIndex, targetDay, 12, 0, 0);
+
+                  toUpsert.push({
+                    ...t,
+                    ...basePayload,
+                    date: toDbDate(format(targetDate, 'yyyy-MM-dd'))!,
+                    renewalDate: data.renewalDate 
+                      ? toDbDate(format(new Date(year, mIndex, Math.min(parseLocalDate(data.renewalDate).getDate(), lastDay), 12, 0, 0), 'yyyy-MM-dd')) 
+                      : null,
+                  });
+                }
+              });
+
+              months.forEach((mIndex: number) => {
+                if (!existingMap.has(mIndex)) {
+                  const lastDay = new Date(year, mIndex + 1, 0).getDate();
+                  const targetDay = Math.min(originalDay, lastDay);
+                  const targetDate = new Date(year, mIndex, targetDay, 12, 0, 0);
+
+                  toUpsert.push({
+                    ...basePayload,
+                    groupId: editingTransaction.groupId,
+                    date: toDbDate(format(targetDate, 'yyyy-MM-dd'))!,
+                    renewalDate: data.renewalDate 
+                      ? toDbDate(format(new Date(year, mIndex, Math.min(parseLocalDate(data.renewalDate).getDate(), lastDay), 12, 0, 0), 'yyyy-MM-dd')) 
+                      : null,
+                  });
+                }
+              });
+
+              if (toDeleteIds.length > 0) {
+                await localDB.deleteMany('transactions', toDeleteIds);
+              }
+              if (toUpsert.length > 0) {
+                await localDB.saveMany('transactions', toUpsert);
+              }
             } else {
               await localDB.save('transactions', {
                 ...basePayload,
@@ -803,7 +863,7 @@ function TransactionsContent() {
     }
   };
 
-  const handleEdit = React.useCallback((transaction: any) => {
+  const handleEdit = React.useCallback(async (transaction: any) => {
     setEditingTransaction(transaction);
     
     // Safely get date string from various possible formats
@@ -874,6 +934,20 @@ function TransactionsContent() {
       cleanEntityName = cleanEntityName.replace(/\s*\(\d+\/\d+\)\s*$/, '').trim();
     }
 
+    let loadedMonths = safeTx.date ? [parseLocalDate(safeTx.date).getMonth()] : [new Date().getMonth()];
+    
+    if (safeTx.groupId) {
+      try {
+        const relatedTxs = await localDB.get('transactions', user?.uid || '', context, { groupId: safeTx.groupId as string });
+        if (relatedTxs && relatedTxs.length > 0) {
+          loadedMonths = relatedTxs.map((t: any) => t.date ? parseLocalDate(t.date).getMonth() : new Date().getMonth());
+          safeTx.recurrent = true;
+        }
+      } catch (err) {
+        console.error("Failed to load recurring months", err);
+      }
+    }
+
     setRecurrentMonthsTouched(true);
     reset({
       type: 'despesa',
@@ -881,7 +955,7 @@ function TransactionsContent() {
       paymentMethod: 'pix',
       recurrent: false,
       recurrentYear: safeTx.date ? parseLocalDate(safeTx.date).getFullYear() : new Date().getFullYear(),
-      recurrentMonths: safeTx.date ? [parseLocalDate(safeTx.date).getMonth()] : [new Date().getMonth()],
+      recurrentMonths: loadedMonths,
       ...safeTx,
       sharedWith: safeTx.sharedWith,
       entityName: cleanEntityName,
@@ -893,7 +967,7 @@ function TransactionsContent() {
       installments: Number(safeTx.installments || 1),
     } as any);
     setIsModalOpen(true);
-  }, [reset]);
+  }, [reset, user?.uid, context]);
 
   useEffect(() => {
     const editId = searchParams.get('editId') || searchParams.get('edit');

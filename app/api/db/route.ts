@@ -96,6 +96,10 @@ export async function POST(request: Request) {
         query = query.gte(col, options.from).lte(col, options.to);
       }
 
+      if (options?.groupId) {
+        query = query.eq('group_id', options.groupId);
+      }
+
       const { data, error } = await query;
       if (error) throw error;
       return NextResponse.json({ data });
@@ -188,6 +192,33 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true });
     }
 
+    if (action === 'deleteMany') {
+      const ids = payload;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return NextResponse.json({ success: true });
+      }
+
+      const validIds = ids.filter(id => !String(id).startsWith('temp_'));
+      
+      if (validIds.length > 0) {
+        const { error } = await supabaseAdmin.from(collection).delete().in('id', validIds);
+        if (error) throw error;
+        
+        if (collectionToEntity[collection]) {
+          recordActivityLog({
+            userId: user.id,
+            userEmail: user.email,
+            action: 'Exclusão',
+            entity: collectionToEntity[collection],
+            details: `${validIds.length} itens excluídos em lote em ${collectionToEntity[collection]}`,
+            context: context || 'empresa'
+          }).catch(err => console.error(err));
+        }
+      }
+
+      return NextResponse.json({ success: true });
+    }
+
     if (action === 'batch') {
       const { requests } = body;
       if (!Array.isArray(requests)) {
@@ -204,6 +235,9 @@ export async function POST(request: Request) {
             if (req.options?.from && req.options?.to) {
               const col = req.options.dateColumn || 'date';
               query = query.gte(col, req.options.from).lte(col, req.options.to);
+            }
+            if (req.options?.groupId) {
+              query = query.eq('group_id', req.options.groupId);
             }
             const { data, error } = await query;
             if (error) throw error;

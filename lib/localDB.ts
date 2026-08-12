@@ -72,7 +72,7 @@ export const localDB = {
     collection: string,
     uid: string,
     context?: string,
-    options?: { from?: string; to?: string; dateColumn?: string }
+    options?: { from?: string; to?: string; dateColumn?: string; groupId?: string }
   ) => {
     try {
       const result = await apiCall('get', { collection, uid, context, options });
@@ -96,7 +96,7 @@ export const localDB = {
     requests: Array<{
       collection: string;
       context?: string;
-      options?: { from?: string; to?: string; dateColumn?: string };
+      options?: { from?: string; to?: string; dateColumn?: string; groupId?: string };
     }>,
     uid: string
   ) => {
@@ -175,6 +175,15 @@ export const localDB = {
       await apiCall('delete', { collection, id });
     } catch (error) {
       console.error(`Error deleting ${collection}:`, error);
+      throw error;
+    }
+  },
+
+  deleteMany: async (collection: string, ids: string[]) => {
+    try {
+      await apiCall('deleteMany', { collection, payload: ids });
+    } catch (error) {
+      console.error(`Error bulk deleting ${collection}:`, error);
       throw error;
     }
   }
