@@ -681,6 +681,13 @@ export default function ClientsPage() {
                   </div>
                   <div className="flex items-center gap-1">
                     <button 
+                      onClick={() => router.push(`/transactions?search=${encodeURIComponent(c.companyName)}`)}
+                      title="Ver Histórico de Lançamentos"
+                      className="p-2 text-primary hover:bg-primary/10 rounded-xl transition-colors"
+                    >
+                      <History size={18} />
+                    </button>
+                    <button 
                       onClick={() => handleDownloadPDF(c)}
                       title="Baixar PDF"
                       className="p-2 text-primary hover:bg-primary/10 rounded-xl transition-colors"

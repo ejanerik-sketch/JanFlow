@@ -391,6 +391,11 @@ function TransactionsContent() {
     if (searchParams.get('new') === 'true') {
       setIsModalOpen(true);
     }
+    const searchParam = searchParams.get('search');
+    if (searchParam) {
+      setSearchTerm(searchParam);
+      setIsGlobalSearch(true);
+    }
   }, [searchParams]);
 
 

@@ -51,8 +51,6 @@ export default function Dashboard() {
   const [budgets, setBudgets] = useState<any[]>([]);
   const [cards, setCards] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
-  const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
-  const [newGoal, setNewGoal] = useState(85000);
   const [metrics, setMetrics] = useState({
     revenue: 0,
     expenses: 0,
@@ -106,10 +104,7 @@ export default function Dashboard() {
     const to = format(end, 'yyyy-MM-dd');
     const processData = (allTransactions: any[], allBudgets: any[], allCardsRaw: any[], allCategories: any[]) => {
       const allCards = allCardsRaw.filter((c: any) => c.context === context);
-      const savedGoal = localStorage.getItem(`janflow_goal_${user?.uid}_${context}`);
-      if (savedGoal) {
-        setNewGoal(parseFloat(savedGoal));
-      }
+
       
       setBudgets(allBudgets);
       setCards(allCards);
@@ -191,8 +186,6 @@ export default function Dashboard() {
           }
         } else {
           exp += portion;
-          if (t.status === 'atrasado') over += portion;
-          else if (t.status === 'a_pagar' || t.status === 'pendente') pend += portion;
           
           if ((t.description || '').toLowerCase().includes('cancelamento') || (t.description || '').toLowerCase().includes('cancelado')) {
             cancC++;
@@ -238,7 +231,7 @@ export default function Dashboard() {
         cancelledContracts: cancC,
         cardBreakdown: Object.values(cardMap).sort((a, b) => b.value - a.value),
         categoryDistribution: distribution,
-        commercialGoal: savedGoal ? parseFloat(savedGoal) : prev.commercialGoal,
+        commercialGoal: prev.commercialGoal,
         commercialCurrent: rev
       }));
     };
@@ -495,39 +488,7 @@ export default function Dashboard() {
 
           {/* Sidebar Widgets */}
           <div className="space-y-8">
-            {/* Commercial Goals */}
-            {isBusiness && (
-              <div className="bg-surface-container-lowest p-8 rounded-[32px] border border-outline-variant/20 shadow-sm">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-lg font-black text-on-surface">Meta Comercial</h3>
-                  <button 
-                    onClick={() => setIsGoalModalOpen(true)}
-                    className="p-2 hover:bg-surface-container-high rounded-xl transition-colors text-primary"
-                  >
-                    <Edit2 size={18} />
-                  </button>
-                </div>
-                <div className="space-y-6">
-                  <div className="relative h-4 bg-surface-container-high rounded-full overflow-hidden">
-                    <motion.div 
-                      initial={{ width: 0 }}
-                      animate={{ width: `${(metrics.commercialCurrent / metrics.commercialGoal) * 100}%` }}
-                      className="absolute inset-y-0 left-0 bg-primary rounded-full"
-                    ></motion.div>
-                  </div>
-                  <div className="flex justify-between items-end">
-                    <div>
-                      <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">Atual</p>
-                      <p className="text-xl font-black text-on-surface">{formatCurrency(metrics.commercialCurrent)}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">Meta</p>
-                      <p className="text-sm font-bold text-on-surface-variant">{formatCurrency(metrics.commercialGoal)}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+
 
             {/* Card Spending */}
             <div className="bg-surface-container-lowest p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-outline-variant/20 group hover:translate-y-[-4px] transition-all duration-300">
@@ -624,57 +585,7 @@ export default function Dashboard() {
           </div>
         )}
       </div>
-      {/* Goal Modal */}
-      <AnimatePresence>
-        {isGoalModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsGoalModalOpen(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-md bg-surface-container-lowest rounded-[32px] p-8 shadow-2xl border border-outline-variant/20"
-            >
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-black text-on-surface">Definir Meta Comercial</h3>
-                <button onClick={() => setIsGoalModalOpen(false)} className="p-2 hover:bg-surface-container-high rounded-full transition-colors">
-                  <X size={20} />
-                </button>
-              </div>
 
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant px-1">Valor da Meta (R$)</label>
-                  <input 
-                    type="number"
-                    autoFocus
-                    value={newGoal}
-                    onChange={(e) => setNewGoal(parseFloat(e.target.value))}
-                    className="w-full bg-surface-container-high border-none rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-primary/20"
-                  />
-                </div>
-
-                <button 
-                  onClick={() => {
-                    localStorage.setItem(`janflow_goal_${user.uid}_${context}`, newGoal.toString());
-                    setMetrics(prev => ({ ...prev, commercialGoal: newGoal }));
-                    setIsGoalModalOpen(false);
-                  }}
-                  className="w-full py-4 bg-primary text-white rounded-2xl font-black shadow-lg shadow-primary/20 active:scale-95 transition-all"
-                >
-                  Salvar Meta
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
       {/* Filter Modal */}
       <AnimatePresence>
