@@ -92,6 +92,7 @@ function TransactionsContent() {
   const [editingTransaction, setEditingTransaction] = useState<any>(null);
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [searchTerm, setSearchTerm] = useState('');
+  const [isGlobalSearch, setIsGlobalSearch] = useState(false);
   const [filterType, setFilterType] = useState<'todos' | 'receita' | 'despesa'>('todos');
   const [filterCategory, setFilterCategory] = useState('todas');
   const [filterStatus, setFilterStatus] = useState('todos');
@@ -424,8 +425,9 @@ function TransactionsContent() {
     };
 
     const loadData = async () => {
-      const from = format(startOfMonth(selectedMonth), 'yyyy-MM-dd');
-      const to = format(endOfMonth(selectedMonth), 'yyyy-MM-dd');
+      const year = selectedMonth.getFullYear();
+      const from = isGlobalSearch ? `${year}-01-01` : format(startOfMonth(selectedMonth), 'yyyy-MM-dd');
+      const to = isGlobalSearch ? `${year}-12-31` : format(endOfMonth(selectedMonth), 'yyyy-MM-dd');
 
       // 1. Carrega do Cache Instantaneamente
       const cachedTrans = localDB.getCached('transactions', user.uid, context, { from, to });
@@ -503,7 +505,7 @@ function TransactionsContent() {
     };
 
     loadData();
-  }, [user, context, selectedMonth, refreshTrigger]);
+  }, [user, context, selectedMonth, refreshTrigger, isGlobalSearch]);
 
   const closeModal = () => {
     setIsModalOpen(false);
@@ -536,7 +538,7 @@ function TransactionsContent() {
         value: data.value,
         status: data.status, // Allow user-selected status even for credit cards when editing
         paymentMethod: data.paymentMethod,
-        cardId: data.cardId || null,
+        cardId: (data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'cartao_debito') ? (data.cardId || null) : null,
         isInstallment: data.isInstallment || false,
         installments: data.installments || 1,
         isShared: data.isShared || false,
@@ -676,7 +678,7 @@ function TransactionsContent() {
             }
             await localDB.saveMany('transactions', arr);
           } else if (data.recurrent && !editingTransaction) {
-            const year = data.recurrentYear || new Date(data.date).getFullYear();
+            const year = data.recurrentYear || parseLocalDate(data.date).getFullYear();
             const months = data.recurrentMonths || [];
             
             if (months.length === 0) {
@@ -1133,15 +1135,29 @@ function TransactionsContent() {
 
         {/* Filters & Search */}
         <div className="bg-surface-container-lowest p-4 rounded-[24px] border border-outline-variant/20 shadow-sm flex flex-col lg:flex-row items-center gap-4">
-          <div className="relative flex-1 w-full">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" size={20} />
-            <input
-              type="text"
-              placeholder="Pesquisar por entidade ou descrição..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary/20 transition-all"
-            />
+          <div className="relative flex-1 w-full flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" size={20} />
+              <input
+                type="text"
+                placeholder="Pesquisar por entidade ou descrição..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-12 pr-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary/20 transition-all"
+              />
+            </div>
+            <button
+              onClick={() => setIsGlobalSearch(!isGlobalSearch)}
+              className={cn(
+                "px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm whitespace-nowrap border-none cursor-pointer",
+                isGlobalSearch 
+                  ? themeBg + " text-white" 
+                  : "bg-surface-container-high text-on-surface-variant hover:bg-surface-variant"
+              )}
+              title={isGlobalSearch ? "Pesquisando no ano todo" : "Pesquisar no ano todo"}
+            >
+              {isGlobalSearch ? "Ano Todo" : "Mês Atual"}
+            </button>
           </div>
 
           <div className="flex items-center gap-2 w-full lg:w-auto overflow-x-auto pb-2 lg:pb-0">
