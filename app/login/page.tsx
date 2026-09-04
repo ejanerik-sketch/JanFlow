@@ -18,6 +18,13 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('error') === 'service_unavailable') {
+        setError('O servidor de autenticação esteve temporariamente indisponível (503/502). As conexões em loop foram interrompidas para proteção. Faça login novamente.');
+      }
+    }
+
     if (isAuthReady && user) {
       router.push('/');
     }

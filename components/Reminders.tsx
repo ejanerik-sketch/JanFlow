@@ -66,8 +66,25 @@ export default function Reminders() {
 
   useEffect(() => {
     loadReminders();
-    const interval = setInterval(loadReminders, 60000); // Check every minute
-    return () => clearInterval(interval);
+
+    if (!user) return;
+
+    // Substituição de Polling por WebSockets (Supabase Realtime)
+    const channelName = `realtime_reminders_${context}_${user.uid}_${Date.now()}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'transactions' },
+        () => {
+          loadReminders();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user, context]);
 
   const markAsPaid = async (e: React.MouseEvent, transaction: any) => {

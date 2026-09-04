@@ -83,11 +83,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    // Escuta evento de emergência disparado pelo interceptor caso ocorra 502/503
+    const handleAuthUnavailable = (event: any) => {
+      console.warn('[AppContext] Serviço de autenticação indisponível detectado:', event?.detail);
+      setUser(null);
+      setUserData(null);
+      setIsAuthReady(true);
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login?error=service_unavailable';
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('janflow:auth_service_unavailable', handleAuthUnavailable);
+    }
+
     const checkSession = async () => {
       try {
         const sessionResult = await safeAwait(
           supabase.auth.getSession() as any,
-          8000,
+          5000,
           { data: { session: null } }
         );
         const session = (sessionResult as any)?.data?.session;
@@ -96,12 +111,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setUser({ uid: session.user.id, email: session.user.email });
           await safeAwait(
             fetchProfile(session.user.id),
-            8000,
+            5000,
             undefined
           );
+        } else {
+          setUser(null);
+          setUserData(null);
         }
       } catch (error) {
         console.error("Error checking session:", error);
+        setUser(null);
+        setUserData(null);
       } finally {
         setIsAuthReady(true);
       }
@@ -111,11 +131,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event: any, session: any) => {
       try {
+        if (event === 'SIGNED_OUT') {
+          setUser(null);
+          setUserData(null);
+          return;
+        }
+
         if (session?.user) {
           setUser({ uid: session.user.id, email: session.user.email });
           await safeAwait(
             fetchProfile(session.user.id),
-            8000,
+            5000,
             undefined
           );
         } else {
@@ -130,6 +156,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('janflow:auth_service_unavailable', handleAuthUnavailable);
+      }
       subscription.unsubscribe();
     };
   }, []);

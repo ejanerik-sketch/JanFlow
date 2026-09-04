@@ -138,9 +138,7 @@ export default function BudgetsPage() {
           { name: 'FATURA', flow: 'despesa_variavel', context: 'pessoal', color: '#06b6d4' },
           { name: 'OUTROS', flow: 'despesa_variavel', context: 'pessoal', color: '#f97316' },
         ];
-        for (const cat of defaultCategories) {
-          await localDB.save('categories', { ...cat, uid: user.uid });
-        }
+        await localDB.saveMany('categories', defaultCategories.map(cat => ({ ...cat, uid: user.uid })));
         const seededCats = await localDB.get('categories', user.uid, context);
         setCategories(seededCats);
       } else {

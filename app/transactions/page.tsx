@@ -612,7 +612,7 @@ function TransactionsContent() {
                      createdAt: t.createdAt
                  };
               });
-              await Promise.all(arr.map(t => localDB.save('transactions', t)));
+              await localDB.saveMany('transactions', arr);
             } else if (editingTransaction.groupId && data.recurrent) {
               const year = data.recurrentYear || parseLocalDate(data.date).getFullYear();
               const sortedMonths = [...(data.recurrentMonths || [])].sort((a, b) => a - b);
@@ -687,9 +687,7 @@ function TransactionsContent() {
               }
             } else if ((relatedInstallments.length > 0 && data.installments !== editingTransaction.installments) || (relatedInstallments.length === 0 && hasInstallments)) {
               if (relatedInstallments.length > 0) {
-                for (const t of relatedInstallments) {
-                  await localDB.delete('transactions', t.id);
-                }
+                await localDB.deleteMany('transactions', relatedInstallments.map((t: any) => t.id));
               } else {
                 await localDB.delete('transactions', editingTransaction.id);
               }
@@ -819,10 +817,11 @@ function TransactionsContent() {
     if (!user || !importData) return;
     // Simple CSV simulation: Date, Entity, Value, Category
     const lines = importData.split('\n');
+    const itemsToSave: any[] = [];
     for (const line of lines) {
       const [date, entity, value, category, type] = line.split(',');
       if (date && entity && value) {
-        await localDB.save('transactions', {
+        itemsToSave.push({
           uid: user.uid,
           context,
           date: new Date(date).toISOString(),
@@ -836,6 +835,9 @@ function TransactionsContent() {
           createdAt: new Date().toISOString(),
         });
       }
+    }
+    if (itemsToSave.length > 0) {
+      await localDB.saveMany('transactions', itemsToSave);
     }
     triggerRefresh();
     setIsImportModalOpen(false);
@@ -860,9 +862,7 @@ function TransactionsContent() {
         );
 
         if (related.length > 0) {
-          for (const item of related) {
-            await localDB.delete('transactions', item.id);
-          }
+          await localDB.deleteMany('transactions', related.map((item: any) => item.id));
         } else {
           await localDB.delete('transactions', deleteConfirmId);
         }
