@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Bell, AlertCircle, CheckCircle2, Clock, Check, Mail, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { localDB } from '@/lib/localDB';
-import { supabase } from '@/lib/supabase';
+import { pb } from '@/lib/pocketbase';
 import { useAppContext } from '@/context/AppContext';
 import { format, differenceInDays, isAfter, isBefore, addDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -69,21 +69,13 @@ export default function Reminders() {
 
     if (!user) return;
 
-    // Substituição de Polling por WebSockets (Supabase Realtime)
-    const channelName = `realtime_reminders_${context}_${user.uid}_${Date.now()}`;
-    const channel = supabase
-      .channel(channelName)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'transactions' },
-        () => {
-          loadReminders();
-        }
-      )
-      .subscribe();
+    // Substituição de Polling por WebSockets (PocketBase Realtime)
+    pb.collection('transactions').subscribe('*', function (e) {
+      loadReminders();
+    });
 
     return () => {
-      supabase.removeChannel(channel);
+      pb.collection('transactions').unsubscribe('*');
     };
   }, [user, context]);
 
@@ -118,8 +110,8 @@ export default function Reminders() {
       const customSubject = localStorage.getItem(`janflow_email_subject_${user.uid}`) || undefined;
       const customHtml = localStorage.getItem(`janflow_email_html_${user.uid}`) || undefined;
 
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
+      const token = pb.authStore.token;
+      if (!token) {
         throw new Error('Sessão expirada. Faça login novamente.');
       }
 
@@ -127,7 +119,7 @@ export default function Reminders() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           transactionName: transaction.entityName,

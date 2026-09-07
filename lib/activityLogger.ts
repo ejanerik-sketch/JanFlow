@@ -1,4 +1,4 @@
-import { getSupabaseAdmin } from './supabaseAdmin';
+import { getPocketBaseAdmin } from './pocketbaseAdmin';
 
 export interface ActivityLogParams {
   userId: string;
@@ -12,37 +12,33 @@ export interface ActivityLogParams {
 
 export async function recordActivityLog(params: ActivityLogParams) {
   try {
-    const supabaseAdmin = getSupabaseAdmin();
+    const pbAdmin = await getPocketBaseAdmin();
     
     let name = params.userName;
     let email = params.userEmail || '';
 
-    // Se nome não foi fornecido, tenta buscar no perfil
     if (!name && params.userId) {
-      const { data: profile } = await supabaseAdmin
-        .from('profiles')
-        .select('name, email')
-        .eq('id', params.userId)
-        .maybeSingle();
-
-      if (profile) {
-        name = profile.name || profile.email?.split('@')[0];
-        if (!email) email = profile.email || '';
+      try {
+        const user = await pbAdmin.collection('users').getOne(params.userId);
+        if (user) {
+          name = user.name || user.email?.split('@')[0];
+          if (!email) email = user.email || '';
+        }
+      } catch (e) {
+        // Ignorar se usuário não for encontrado
       }
     }
 
-    await supabaseAdmin.from('activity_logs').insert([{
+    await pbAdmin.collection('activity_logs').create({
       user_id: params.userId,
       user_name: name || email.split('@')[0] || 'Usuário',
       user_email: email,
       action: params.action,
       entity: params.entity,
       details: params.details,
-      context: params.context || 'empresa',
-      created_at: new Date().toISOString()
-    }]);
+      context: params.context || 'empresa'
+    });
   } catch (error) {
-    // Log de atividade é uma funcionalidade auxiliar, não deve quebrar a operação principal
     console.error('Failed to insert activity log:', error);
   }
 }

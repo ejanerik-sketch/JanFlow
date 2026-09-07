@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { pb } from './pocketbase';
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos de validade mínima de cache
 const STATIC_COLLECTIONS = new Set(['categories', 'cards', 'budgets', 'profiles']);
@@ -33,7 +33,7 @@ const invalidateCache = (collection: string) => {
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && (key.includes(`_${collection}_`) || key.startsWith(`janflow_cache_${collection}_`) || key.startsWith(`janflow_cache_v3_${collection}_`))) {
+      if (key && (key.includes(`_${collection}_`) || key.startsWith(`janflow_cache_${collection}_`) || key.startsWith(`janflow_cache_v4_${collection}_`) || key.startsWith(`janflow_cache_v3_`))) {
         keysToRemove.push(key);
       }
     }
@@ -49,8 +49,7 @@ const apiCall = async (action: string, payload: any) => {
 
   while (attempt < maxRetries) {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token || '';
+      const token = pb.authStore.token || '';
 
       const res = await fetch('/api/db', {
         method: 'POST',
@@ -103,7 +102,7 @@ export const localDB = {
   ) => {
     if (typeof window === 'undefined') return [];
     
-    const cacheKey = `janflow_cache_v3_${collection}_${context || 'all'}_${options?.from || 'any'}_${options?.to || 'any'}`;
+    const cacheKey = `janflow_cache_v4_${collection}_${context || 'all'}_${options?.from || 'any'}_${options?.to || 'any'}`;
     const cachedData = localStorage.getItem(cacheKey);
     
     if (cachedData) {
@@ -139,7 +138,7 @@ export const localDB = {
 
     // Se for dado estático e temos cache dentro da validade de 5 minutos, utiliza o cache direto
     if (isStatic && !forceRefresh && typeof window !== 'undefined') {
-      const cacheKey = `janflow_cache_v3_${collection}_${context || 'all'}_${options?.from || 'any'}_${options?.to || 'any'}`;
+      const cacheKey = `janflow_cache_v4_${collection}_${context || 'all'}_${options?.from || 'any'}_${options?.to || 'any'}`;
       const raw = localStorage.getItem(cacheKey);
       if (raw) {
         try {
@@ -157,7 +156,7 @@ export const localDB = {
       
       // Salva no cache com carimbo de data/hora para respeitar os 5 minutos de validade
       if (typeof window !== 'undefined') {
-        const cacheKey = `janflow_cache_v3_${collection}_${context || 'all'}_${options?.from || 'any'}_${options?.to || 'any'}`;
+        const cacheKey = `janflow_cache_v4_${collection}_${context || 'all'}_${options?.from || 'any'}_${options?.to || 'any'}`;
         localStorage.setItem(cacheKey, JSON.stringify({
           timestamp: Date.now(),
           data: parsedData
@@ -181,7 +180,7 @@ export const localDB = {
     uid: string
   ) => {
     try {
-      const result = await apiCall('batch', { requests });
+      const result = await apiCall('batch', { requests, uid });
       const results = result.results || [];
       
       return results.map((res: any) => {
@@ -192,7 +191,7 @@ export const localDB = {
         
         // Salva no cache local com timestamp
         if (typeof window !== 'undefined') {
-          const cacheKey = `janflow_cache_v3_${res.collection}_${res.context || 'all'}_${res.options?.from || 'any'}_${res.options?.to || 'any'}`;
+          const cacheKey = `janflow_cache_v4_${res.collection}_${res.context || 'all'}_${res.options?.from || 'any'}_${res.options?.to || 'any'}`;
           localStorage.setItem(cacheKey, JSON.stringify({
             timestamp: Date.now(),
             data: parsedData

@@ -1,4 +1,5 @@
-import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import PocketBase from 'pocketbase';
+import { POCKETBASE_URL } from '@/lib/pocketbase';
 
 export interface AuthedUser {
   id: string;
@@ -8,8 +9,7 @@ export interface AuthedUser {
 
 /**
  * Extrai e valida o JWT da sessão a partir do header Authorization: Bearer <token>.
- * Usa o admin client apenas para VALIDAR o token (auth.getUser) — não confia em
- * nada vindo do corpo da requisição. Retorna o usuário + role lido de `profiles`.
+ * Usa o authRefresh do PocketBase para VALIDAR o token. Retorna o usuário + role.
  *
  * Lança Error com mensagem amigável quando o token está ausente/ inválido.
  */
@@ -23,25 +23,23 @@ export async function getAuthedUser(req: Request): Promise<AuthedUser> {
     throw new AuthError('Não autenticado: token de sessão ausente.', 401);
   }
 
-  const admin = getSupabaseAdmin();
+  const pb = new PocketBase(POCKETBASE_URL);
+  pb.authStore.save(token, null);
 
-  const { data, error } = await admin.auth.getUser(token);
-  if (error || !data?.user) {
+  try {
+    const authData = await pb.collection('users').authRefresh();
+    if (!authData.record) {
+      throw new Error('User not found');
+    }
+
+    return {
+      id: authData.record.id,
+      email: authData.record.email,
+      role: authData.record.role || null,
+    };
+  } catch (error) {
     throw new AuthError('Não autenticado: token inválido ou expirado.', 401);
   }
-
-  // Busca o role no profiles (fonte da verdade do papel)
-  const { data: profile } = await admin
-    .from('profiles')
-    .select('role')
-    .eq('id', data.user.id)
-    .single();
-
-  return {
-    id: data.user.id,
-    email: data.user.email ?? null,
-    role: profile?.role ?? null,
-  };
 }
 
 /**

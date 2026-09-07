@@ -32,7 +32,7 @@ import {
 import { useAppContext } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
 import Reminders from './Reminders';
-import { supabase } from '@/lib/supabase';
+import { pb } from '@/lib/pocketbase';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -179,14 +179,12 @@ export default function Layout({ children }: LayoutProps) {
 
   const handleLogout = async () => {
     try {
-      const { supabase } = await import('@/lib/supabase');
-      await supabase.auth.signOut();
-      localStorage.removeItem('janflow_user');
+      const { pb } = await import('@/lib/pocketbase');
+      pb.authStore.clear();
       window.location.href = '/login';
     } catch (error) {
       console.error("Error logging out:", error);
       // Fallback
-      localStorage.removeItem('janflow_user');
       window.location.href = '/login';
     }
   };
@@ -280,8 +278,8 @@ export default function Layout({ children }: LayoutProps) {
             <Reminders />
             <button 
               onClick={async () => {
-                await supabase.auth.signOut();
-                localStorage.removeItem('janflow_user');
+                const { pb } = await import('@/lib/pocketbase');
+                pb.authStore.clear();
                 window.location.href = '/login';
               }}
               className="p-2 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-full transition-colors"

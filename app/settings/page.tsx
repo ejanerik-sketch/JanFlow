@@ -18,7 +18,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { supabase } from '@/lib/supabase';
+import { pb } from '@/lib/pocketbase';
 import { cn } from '@/lib/utils';
 
 export default function SettingsPage() {
@@ -82,15 +82,8 @@ export default function SettingsPage() {
     setLoading(true);
     setMessage(null);
     try {
-      // Nome do perfil → Supabase (fonte da verdade). A policy "Users can update
-      // own profile" permite o usuário atualizar o próprio nome; o trigger de
-      // proteção impede qualquer mudança de role aqui.
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({ name: formData.name })
-        .eq('id', user.uid);
-
-      if (profileError) throw profileError;
+      const profileError = await pb.collection('users').update(user.uid, { name: formData.name }).catch(err => err);
+      if (profileError instanceof Error) throw profileError;
 
       // Preferências de UI (sem coluna no schema) e template de e-mail → localStorage
       localStorage.setItem(`janflow_prefs_${user.uid}`, JSON.stringify({

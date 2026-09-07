@@ -1,0 +1,497 @@
+[
+  {
+    "name": "categories",
+    "type": "base",
+    "system": false,
+    "fields": [
+      {
+        "name": "name",
+        "type": "text",
+        "required": true,
+        "min": 1
+      },
+      {
+        "name": "flow",
+        "type": "select",
+        "required": true,
+        "values": [
+          "receita",
+          "despesa_fixa",
+          "despesa_variavel"
+        ],
+        "maxSelect": 1
+      },
+      {
+        "name": "color",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "context",
+        "type": "select",
+        "required": true,
+        "values": [
+          "pessoal",
+          "empresa"
+        ],
+        "maxSelect": 1
+      },
+      {
+        "name": "user_id",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "legacy_id",
+        "type": "text",
+        "required": false
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_categories_context ON categories (context)",
+      "CREATE INDEX idx_categories_legacy_id ON categories (legacy_id)"
+    ],
+    "listRule": "@request.auth.id != ''",
+    "viewRule": "@request.auth.id != ''",
+    "createRule": "@request.auth.id != ''",
+    "updateRule": "@request.auth.id != ''",
+    "deleteRule": "@request.auth.id != ''"
+  },
+  {
+    "name": "cards",
+    "type": "base",
+    "system": false,
+    "fields": [
+      {
+        "name": "name",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "limit_amount",
+        "type": "number",
+        "required": false
+      },
+      {
+        "name": "closing_day",
+        "type": "number",
+        "required": false
+      },
+      {
+        "name": "due_day",
+        "type": "number",
+        "required": false
+      },
+      {
+        "name": "bank",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "brand",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "type",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "context",
+        "type": "select",
+        "required": true,
+        "values": [
+          "pessoal",
+          "empresa"
+        ],
+        "maxSelect": 1
+      },
+      {
+        "name": "user_id",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "legacy_id",
+        "type": "text",
+        "required": false
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_cards_context ON cards (context)",
+      "CREATE INDEX idx_cards_legacy_id ON cards (legacy_id)"
+    ],
+    "listRule": "@request.auth.id != ''",
+    "viewRule": "@request.auth.id != ''",
+    "createRule": "@request.auth.id != ''",
+    "updateRule": "@request.auth.id != ''",
+    "deleteRule": "@request.auth.id != ''"
+  },
+  {
+    "name": "clients",
+    "type": "base",
+    "system": false,
+    "fields": [
+      {
+        "name": "company_name",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "cnpj",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "document",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "company_email",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "phone",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "status",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "responsible_name",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "responsible_cpf",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "responsible_email",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "description",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "contract_date",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "renewal_period",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "payment_history",
+        "type": "json",
+        "required": false
+      },
+      {
+        "name": "renewal_history",
+        "type": "json",
+        "required": false
+      },
+      {
+        "name": "context",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "user_id",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "legacy_id",
+        "type": "text",
+        "required": false
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_clients_legacy_id ON clients (legacy_id)"
+    ],
+    "listRule": "@request.auth.id != ''",
+    "viewRule": "@request.auth.id != ''",
+    "createRule": "@request.auth.id != ''",
+    "updateRule": "@request.auth.id != ''",
+    "deleteRule": "@request.auth.id != ''"
+  },
+  {
+    "name": "budgets",
+    "type": "base",
+    "system": false,
+    "fields": [
+      {
+        "name": "category",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "amount",
+        "type": "number",
+        "required": true
+      },
+      {
+        "name": "month",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "recurrence",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "context",
+        "type": "select",
+        "required": false,
+        "values": [
+          "pessoal",
+          "empresa"
+        ],
+        "maxSelect": 1
+      },
+      {
+        "name": "user_id",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "legacy_id",
+        "type": "text",
+        "required": false
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_budgets_legacy_id ON budgets (legacy_id)"
+    ],
+    "listRule": "@request.auth.id != ''",
+    "viewRule": "@request.auth.id != ''",
+    "createRule": "@request.auth.id != ''",
+    "updateRule": "@request.auth.id != ''",
+    "deleteRule": "@request.auth.id != ''"
+  },
+  {
+    "name": "transactions",
+    "type": "base",
+    "system": false,
+    "fields": [
+      {
+        "name": "type",
+        "type": "select",
+        "required": true,
+        "values": [
+          "receita",
+          "despesa"
+        ],
+        "maxSelect": 1
+      },
+      {
+        "name": "category",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "entity_name",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "description",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "value",
+        "type": "number",
+        "required": true
+      },
+      {
+        "name": "date",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "status",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "payment_method",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "card_id",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "is_installment",
+        "type": "bool",
+        "required": false
+      },
+      {
+        "name": "installments",
+        "type": "number",
+        "required": false
+      },
+      {
+        "name": "current_installment",
+        "type": "number",
+        "required": false
+      },
+      {
+        "name": "first_installment_date",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "purchase_date",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "group_id",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "is_shared",
+        "type": "bool",
+        "required": false
+      },
+      {
+        "name": "shared_with",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "shared_split",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "recurrent",
+        "type": "bool",
+        "required": false
+      },
+      {
+        "name": "renewal_date",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "context",
+        "type": "select",
+        "required": true,
+        "values": [
+          "pessoal",
+          "empresa"
+        ],
+        "maxSelect": 1
+      },
+      {
+        "name": "receipt",
+        "type": "file",
+        "required": false,
+        "maxSelect": 1,
+        "maxSize": 10485760,
+        "mimeTypes": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif",
+          "application/pdf"
+        ],
+        "thumbs": [
+          "100x100"
+        ]
+      },
+      {
+        "name": "user_id",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "legacy_id",
+        "type": "text",
+        "required": false
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_transactions_date ON transactions (date)",
+      "CREATE INDEX idx_transactions_context ON transactions (context)",
+      "CREATE INDEX idx_transactions_status ON transactions (status)",
+      "CREATE INDEX idx_transactions_group_id ON transactions (group_id)",
+      "CREATE INDEX idx_transactions_legacy_id ON transactions (legacy_id)"
+    ],
+    "listRule": "@request.auth.id != ''",
+    "viewRule": "@request.auth.id != ''",
+    "createRule": "@request.auth.id != ''",
+    "updateRule": "@request.auth.id != ''",
+    "deleteRule": "@request.auth.id != ''"
+  },
+  {
+    "name": "activity_logs",
+    "type": "base",
+    "system": false,
+    "fields": [
+      {
+        "name": "user_id",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "user_name",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "user_email",
+        "type": "text",
+        "required": false
+      },
+      {
+        "name": "action",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "entity",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "details",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "context",
+        "type": "text",
+        "required": false
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_activity_logs_created ON activity_logs (created)"
+    ],
+    "listRule": "@request.auth.id != ''",
+    "viewRule": "@request.auth.id != ''",
+    "createRule": "@request.auth.id != ''",
+    "updateRule": "@request.auth.id != ''",
+    "deleteRule": "@request.auth.id != ''"
+  }
+]

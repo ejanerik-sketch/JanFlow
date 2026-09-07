@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server';
-import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getPocketBaseAdmin } from '@/lib/pocketbaseAdmin';
+
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
+
+import { getAuthedUser } from '@/lib/apiAuth';
 import { recordActivityLog } from '@/lib/activityLogger';
 
 const collectionToEntity: Record<string, 'Lançamentos' | 'Categorias' | 'Cartões' | 'Clientes' | 'Orçamentos' | 'Usuários'> = {
@@ -8,7 +14,7 @@ const collectionToEntity: Record<string, 'Lançamentos' | 'Categorias' | 'Cartõ
   cards: 'Cartões',
   clients: 'Clientes',
   budgets: 'Orçamentos',
-  profiles: 'Usuários'
+  users: 'Usuários'
 };
 
 function formatPaymentMethodName(method?: string): string {
@@ -48,7 +54,7 @@ function formatDetails(collection: string, payload: any, actionType: 'Criação'
     const amt = payload?.amount ? ` (R$ ${Number(payload.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})` : '';
     return `${actionType === 'Criação' ? 'Novo orçamento' : actionType === 'Edição' ? 'Orçamento alterado' : 'Orçamento excluído'} na categoria "${payload?.category || ''}"${amt}`;
   }
-  if (collection === 'profiles') {
+  if (collection === 'users') {
     return `${actionType === 'Edição' ? 'Perfil/cargo atualizado' : 'Usuário modificado'}`;
   }
   return `${actionType} em ${collection}`;
@@ -56,21 +62,14 @@ function formatDetails(collection: string, payload: any, actionType: 'Criação'
 
 export async function POST(request: Request) {
   try {
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'Missing authorization header' }, { status: 401 });
+    let user;
+    try {
+      user = await getAuthedUser(request);
+    } catch (err: any) {
+      return NextResponse.json({ error: err.message }, { status: 401 });
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const supabaseAdmin = getSupabaseAdmin();
-    
-    // Verify the user is authenticated
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-    
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
-    }
-
+    const pbAdmin = await getPocketBaseAdmin();
     const body = await request.json();
     const { action, collection, uid, context, options, payload, id } = body;
 
@@ -82,37 +81,59 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing collection' }, { status: 400 });
     }
 
+    // Helper para montar query filter do PocketBase
+    const buildFilter = (coll: string, ctx?: string, opts?: any) => {
+      const filters = [];
+      // Isolamento: se for contexto pessoal, restringe ao usuário.
+      // (ignora tabelas de sistema como users e logs onde a regra é diferente)
+      if (ctx === 'pessoal' && uid && coll !== 'users' && coll !== 'activity_logs') {
+        filters.push(`user_id="${uid}"`);
+      }
+
+      if (ctx) filters.push(`context="${ctx}"`);
+      if (opts?.from && opts?.to) {
+        const col = opts.dateColumn || 'date';
+        filters.push(`${col}>="${opts.from}"`);
+        filters.push(`${col}<="${opts.to}"`);
+      }
+      if (opts?.groupId) {
+        filters.push(`group_id="${opts.groupId}"`);
+      }
+      return filters.join(' && ');
+    };
+
     if (action === 'get') {
-      let query = supabaseAdmin.from(collection).select('*');
-      
-      // Se houver um contexto especificado, filtramos por ele. 
-      // Sem filtro de user_id, todos veem tudo em ambas as sessões.
-      if (context) {
-        query = query.eq('context', context);
-      }
+      const filterStr = buildFilter(collection, context, options);
+      const queryOptions: any = {};
+      if (filterStr) queryOptions.filter = filterStr;
 
-      if (options?.from && options?.to) {
-        const col = options.dateColumn || 'date';
-        query = query.gte(col, options.from).lte(col, options.to);
+      try {
+        const data = await pbAdmin.collection(collection).getFullList(queryOptions);
+        return NextResponse.json({ data });
+      } catch (e: any) {
+        console.error(`[API/DB] GET ${collection} Error:`, e);
+        if (e.response) console.error(`[API/DB] PocketBase Response:`, e.response);
+        throw e;
       }
-
-      if (options?.groupId) {
-        query = query.eq('group_id', options.groupId);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      return NextResponse.json({ data });
     }
 
     if (action === 'saveMany') {
-      const { data, error } = await supabaseAdmin.from(collection).upsert(payload).select();
-      if (error) throw error;
+      // PocketBase doesn't have native bulk upsert, so we loop
+      const results = [];
+      for (const item of payload) {
+        if (item.id && !String(item.id).startsWith('temp_')) {
+          const { id: itemId, ...rest } = item;
+          results.push(await pbAdmin.collection(collection).update(itemId, rest));
+        } else {
+          const { id: _, ...rest } = item;
+          results.push(await pbAdmin.collection(collection).create(rest));
+        }
+      }
 
       if (collectionToEntity[collection]) {
         recordActivityLog({
           userId: user.id,
-          userEmail: user.email,
+          userEmail: user.email || '',
           action: 'Criação',
           entity: collectionToEntity[collection],
           details: `${payload.length} itens adicionados em lote em ${collectionToEntity[collection]}`,
@@ -120,7 +141,7 @@ export async function POST(request: Request) {
         }).catch(err => console.error(err));
       }
 
-      return NextResponse.json({ data });
+      return NextResponse.json({ data: results });
     }
 
     if (action === 'save') {
@@ -129,30 +150,17 @@ export async function POST(request: Request) {
 
       if (!isInsert) {
         const { id: payloadId, ...updatePayload } = payload;
-        const { data, error } = await supabaseAdmin
-          .from(collection)
-          .update(updatePayload)
-          .eq('id', payloadId)
-          .select()
-          .single();
-        if (error) throw error;
-        resultData = data;
+        resultData = await pbAdmin.collection(collection).update(payloadId, updatePayload);
       } else {
-        const { id: payloadId, ...insertPayload } = payload;
-        const { data, error } = await supabaseAdmin
-          .from(collection)
-          .insert([insertPayload])
-          .select()
-          .single();
-        if (error) throw error;
-        resultData = data;
+        const { id: _, ...insertPayload } = payload;
+        resultData = await pbAdmin.collection(collection).create(insertPayload);
       }
 
       if (collectionToEntity[collection]) {
         const actionType = isInsert ? 'Criação' : 'Edição';
         recordActivityLog({
           userId: user.id,
-          userEmail: user.email,
+          userEmail: user.email || '',
           action: actionType,
           entity: collectionToEntity[collection],
           details: formatDetails(collection, resultData || payload, actionType),
@@ -168,20 +176,19 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: true });
       }
       
-      // Buscar item antes de deletar para detalhe no log se possível
       let deletedItem: any = null;
       if (collectionToEntity[collection]) {
-        const { data } = await supabaseAdmin.from(collection).select('*').eq('id', id).maybeSingle();
-        deletedItem = data;
+        try {
+          deletedItem = await pbAdmin.collection(collection).getOne(id);
+        } catch (e) {}
       }
 
-      const { error } = await supabaseAdmin.from(collection).delete().eq('id', id);
-      if (error) throw error;
+      await pbAdmin.collection(collection).delete(id);
 
       if (collectionToEntity[collection]) {
         recordActivityLog({
           userId: user.id,
-          userEmail: user.email,
+          userEmail: user.email || '',
           action: 'Exclusão',
           entity: collectionToEntity[collection],
           details: formatDetails(collection, deletedItem || { id }, 'Exclusão'),
@@ -201,13 +208,12 @@ export async function POST(request: Request) {
       const validIds = ids.filter(id => !String(id).startsWith('temp_'));
       
       if (validIds.length > 0) {
-        const { error } = await supabaseAdmin.from(collection).delete().in('id', validIds);
-        if (error) throw error;
+        await Promise.all(validIds.map(vid => pbAdmin.collection(collection).delete(vid)));
         
         if (collectionToEntity[collection]) {
           recordActivityLog({
             userId: user.id,
-            userEmail: user.email,
+            userEmail: user.email || '',
             action: 'Exclusão',
             entity: collectionToEntity[collection],
             details: `${validIds.length} itens excluídos em lote em ${collectionToEntity[collection]}`,
@@ -228,19 +234,10 @@ export async function POST(request: Request) {
       const results = await Promise.all(
         requests.map(async (req: any) => {
           try {
-            let query = supabaseAdmin.from(req.collection).select('*');
-            if (req.context) {
-              query = query.eq('context', req.context);
-            }
-            if (req.options?.from && req.options?.to) {
-              const col = req.options.dateColumn || 'date';
-              query = query.gte(col, req.options.from).lte(col, req.options.to);
-            }
-            if (req.options?.groupId) {
-              query = query.eq('group_id', req.options.groupId);
-            }
-            const { data, error } = await query;
-            if (error) throw error;
+            const filterStr = buildFilter(req.collection, req.context, req.options);
+            const queryOpts: any = {};
+            if (filterStr) queryOpts.filter = filterStr;
+            const data = await pbAdmin.collection(req.collection).getFullList(queryOpts);
             return {
               collection: req.collection,
               context: req.context,

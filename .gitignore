@@ -14,3 +14,6 @@ coverage/
 # docs internos e instruções (preço/vulns/infra) — fora do repo do cliente
 CLAUDE.md
 docs/
+backup_supabase/
+scratch/
+scripts/

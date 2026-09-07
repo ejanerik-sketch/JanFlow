@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppContext } from '@/context/AppContext';
-import { supabase } from '@/lib/supabase';
+import { pb } from '@/lib/pocketbase';
 import { Mail, Lock, Eye, EyeOff, ArrowRight, ShieldCheck, LockKeyhole, Wallet, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -36,18 +36,11 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) {
-        setError('E-mail ou senha incorretos.');
-      } else if (data.session) {
-        window.location.href = '/';
-      }
-    } catch (err) {
-      setError('Ocorreu um erro ao fazer login.');
+      await pb.collection('users').authWithPassword(email, password);
+      window.location.href = '/';
+    } catch (err: any) {
+      console.error(err);
+      setError('E-mail ou senha incorretos.');
     } finally {
       setLoading(false);
     }
@@ -62,17 +55,11 @@ export default function LoginPage() {
     }
     
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
-      
-      if (error) {
-        setError('Erro ao enviar e-mail de redefinição.');
-      } else {
-        setSuccess('Instruções de redefinição enviadas para o seu e-mail.');
-      }
-    } catch (err) {
-      setError('Erro ao processar solicitação.');
+      await pb.collection('users').requestPasswordReset(email);
+      setSuccess('Instruções de redefinição enviadas para o seu e-mail.');
+    } catch (err: any) {
+      console.error(err);
+      setError('Erro ao enviar e-mail de redefinição.');
     }
   };
 

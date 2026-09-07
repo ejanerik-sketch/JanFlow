@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getPocketBaseAdmin } from '@/lib/pocketbaseAdmin';
 import { requireAdmin, AuthError } from '@/lib/apiAuth';
 import { rateLimit, clientKey } from '@/lib/rateLimit';
 
@@ -8,7 +8,6 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   try {
-    // Rate limit por IP antes de qualquer processamento pesado
     if (!rateLimit(clientKey(req, 'update-password'), 5, 60_000)) {
       return NextResponse.json(
         { error: 'Muitas tentativas. Tente novamente em instantes.' },
@@ -16,7 +15,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // CRÍTICO: só admin autenticado pode trocar a senha de outro usuário.
     await requireAdmin(req);
 
     const { userId, password } = await req.json();
@@ -29,18 +27,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'A senha deve ter ao menos 6 caracteres.' }, { status: 400 });
     }
 
-    const adminClient = getSupabaseAdmin();
-    const { data, error } = await adminClient.auth.admin.updateUserById(
-      userId,
-      { password: password }
-    );
+    const pbAdmin = await getPocketBaseAdmin();
+    
+    try {
+      const record = await pbAdmin.collection('users').update(userId, {
+        password: password,
+        passwordConfirm: password
+      });
 
-    if (error) {
-      console.error('Supabase Admin Error:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ success: true, user: record });
+    } catch (error: any) {
+      console.error('PocketBase Admin Error (update-password):', error);
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true, user: data.user });
   } catch (err: any) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });

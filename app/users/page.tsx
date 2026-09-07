@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppContext } from '@/context/AppContext';
-import { supabase } from '@/lib/supabase';
+import { pb } from '@/lib/pocketbase';
 import Layout from '@/components/Layout';
 import Image from 'next/image';
 import { 
@@ -66,10 +66,25 @@ export default function UsersPage() {
         setLoading(false);
       }
 
-      const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
-      if (data) {
-        setUsers(data);
-        localStorage.setItem('janflow_cache_users_list', JSON.stringify(data));
+      try {
+        const token = pb.authStore.token;
+        const res = await fetch('/api/db', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ action: 'get', collection: 'users' })
+        });
+        if (res.ok) {
+          const { data } = await res.json();
+          // Converte para o formato esperado pelo frontend (photoURL mantido igual por garantia)
+          const camelData = data.map((u: any) => ({
+            ...u,
+            photoURL: u.photoURL || u.photo_url || ''
+          }));
+          setUsers(camelData);
+          localStorage.setItem('janflow_cache_users_list', JSON.stringify(camelData));
+        }
+      } catch (err) {
+        console.error('Failed to load users', err);
       }
       setLoading(false);
     };
@@ -141,35 +156,30 @@ export default function UsersPage() {
           
           if (formData.password) profileUpdate.password = formData.password;
 
-          const { error: profileError } = await supabase
-            .from('profiles')
-            .update(profileUpdate)
-            .eq('id', editingUser.id);
-
-          if (profileError) throw profileError;
+          const profileError = await pb.collection('users').update(editingUser.id, profileUpdate).catch(err => err);
+          if (profileError instanceof Error) throw profileError;
 
           if (formData.password) {
             const isCurrentUser = String(editingUser.id) === String(user?.uid || user?.id);
             if (isCurrentUser) {
-              const { error: authError } = await supabase.auth.updateUser({ password: formData.password });
-              if (authError) throw authError;
+              await pb.collection('users').update(editingUser.id, { password: formData.password, passwordConfirm: formData.password });
             } else {
-              const { data: { session } } = await supabase.auth.getSession();
-              if (session?.access_token) {
+              const token = pb.authStore.token;
+              if (token) {
                 await fetch('/api/users/update-password', {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                   body: JSON.stringify({ userId: editingUser.id, password: formData.password }),
                 });
               }
             }
           }
         } else {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session?.access_token) {
+          const token = pb.authStore.token;
+          if (token) {
             const response = await fetch('/api/users/create', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
               body: JSON.stringify({
                 email: formData.email,
                 password: formData.password,
@@ -180,12 +190,9 @@ export default function UsersPage() {
             });
             const resData = await response.json();
             if (response.ok && resData.user) {
-              const { data: newProfile } = await supabase.from('profiles').select('*').eq('id', resData.user.id).single();
-              if (newProfile) {
-                const finalUsers = [newProfile, ...users];
-                setUsers(finalUsers);
-                localStorage.setItem('janflow_cache_users_list', JSON.stringify(finalUsers));
-              }
+              const finalUsers = [resData.user, ...users];
+              setUsers(finalUsers);
+              localStorage.setItem('janflow_cache_users_list', JSON.stringify(finalUsers));
             } else {
               throw new Error(resData.error || 'Erro ao criar');
             }
@@ -198,8 +205,16 @@ export default function UsersPage() {
       } catch (err: any) {
         console.error('Erro no background:', err);
         // Refresh completo caso dê erro
-        const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
-        if (data) setUsers(data);
+        const token = pb.authStore.token;
+        const res = await fetch('/api/db', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ action: 'get', collection: 'users' })
+        });
+        if (res.ok) {
+          const { data } = await res.json();
+          setUsers(data.map((u: any) => ({ ...u, photoURL: u.photoURL || u.photo_url || '' })));
+        }
       }
     })();
   };
@@ -242,20 +257,27 @@ export default function UsersPage() {
 
     (async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.access_token) {
+        const token = pb.authStore.token;
+        if (token) {
           await fetch('/api/users/delete', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
             body: JSON.stringify({ uid: userIdToDelete }),
           });
         }
-        await supabase.from('profiles').delete().eq('id', userIdToDelete);
+        await pb.collection('users').delete(userIdToDelete).catch(() => {});
       } catch (err: any) {
         console.error('Erro ao deletar:', err);
         // refresh full on error
-        const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
-        if (data) setUsers(data);
+        const res = await fetch('/api/db', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${pb.authStore.token}` },
+          body: JSON.stringify({ action: 'get', collection: 'users' })
+        });
+        if (res.ok) {
+          const { data } = await res.json();
+          setUsers(data.map((u: any) => ({ ...u, photoURL: u.photoURL || u.photo_url || '' })));
+        }
       }
     })();
   };
@@ -269,10 +291,7 @@ export default function UsersPage() {
   const handleResetPassword = async (email: string) => {
     if (window.confirm(`Deseja enviar um e-mail de redefinição de senha para ${email}?`)) {
       try {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/reset-password`,
-        });
-        if (error) throw error;
+        await pb.collection('users').requestPasswordReset(email);
         alert(`E-mail de redefinição enviado para ${email}`);
       } catch (err: any) {
         alert(`Erro ao enviar e-mail: ${err.message}`);

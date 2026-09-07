@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getPocketBaseAdmin } from '@/lib/pocketbaseAdmin';
 import { requireAdmin } from '@/lib/apiAuth';
 import { rateLimit, clientKey } from '@/lib/rateLimit';
 
@@ -15,7 +15,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Apenas admin
     await requireAdmin(req);
 
     const { uid } = await req.json();
@@ -24,18 +23,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'UID é obrigatório.' }, { status: 400 });
     }
 
-    const adminClient = getSupabaseAdmin();
+    const pbAdmin = await getPocketBaseAdmin();
 
-    // Deleta o usuário da tabela auth.users.
-    // Isso deve acionar o cascade delete na tabela public.profiles se configurado.
-    const { data, error } = await adminClient.auth.admin.deleteUser(uid);
-
-    if (error) {
-      console.error('Supabase Admin Error (delete):', error);
+    try {
+      await pbAdmin.collection('users').delete(uid);
+      return NextResponse.json({ success: true });
+    } catch (error: any) {
+      console.error('PocketBase Admin Error (delete):', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, data });
   } catch (error: any) {
     console.error('Error in /api/users/delete:', error);
     return NextResponse.json(
