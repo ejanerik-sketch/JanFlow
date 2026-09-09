@@ -148,31 +148,36 @@ export default function UsersPage() {
     (async () => {
       try {
         if (editingUser) {
-          const profileUpdate: any = {
+          const token = pb.authStore.token;
+          const updatePayload: any = {
+            id: editingUser.id,
             name: formData.name,
             role: formData.role,
             photoURL: formData.photoURL
           };
           
-          if (formData.password) profileUpdate.password = formData.password;
-
-          const profileError = await pb.collection('users').update(editingUser.id, profileUpdate).catch(err => err);
-          if (profileError instanceof Error) throw profileError;
-
           if (formData.password) {
-            const isCurrentUser = String(editingUser.id) === String(user?.uid || user?.id);
-            if (isCurrentUser) {
-              await pb.collection('users').update(editingUser.id, { password: formData.password, passwordConfirm: formData.password });
-            } else {
-              const token = pb.authStore.token;
-              if (token) {
-                await fetch('/api/users/update-password', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                  body: JSON.stringify({ userId: editingUser.id, password: formData.password }),
-                });
-              }
-            }
+            updatePayload.password = formData.password;
+          }
+
+          const response = await fetch('/api/users/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify(updatePayload),
+          });
+          const resData = await response.json();
+          if (!response.ok) {
+            throw new Error(resData.error || 'Erro ao atualizar usuário');
+          }
+
+          if (resData.user) {
+            const updated = {
+              ...resData.user,
+              photoURL: resData.user.photoURL || resData.user.photo_url || ''
+            };
+            const finalUsers = users.map(u => u.id === editingUser.id ? { ...u, ...updated } : u);
+            setUsers(finalUsers);
+            localStorage.setItem('janflow_cache_users_list', JSON.stringify(finalUsers));
           }
         } else {
           const token = pb.authStore.token;
@@ -199,7 +204,7 @@ export default function UsersPage() {
           }
         }
         
-        if (editingUser && (editingUser.email === user?.email || editingUser.uid === user?.uid)) {
+        if (editingUser && (editingUser.email === user?.email || editingUser.id === user?.uid)) {
           refreshUserData();
         }
       } catch (err: any) {

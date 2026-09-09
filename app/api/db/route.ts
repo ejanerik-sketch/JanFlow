@@ -84,17 +84,13 @@ export async function POST(request: Request) {
     // Helper para montar query filter do PocketBase
     const buildFilter = (coll: string, ctx?: string, opts?: any) => {
       const filters = [];
-      // Isolamento: se for contexto pessoal, restringe ao usuário.
-      // (ignora tabelas de sistema como users e logs onde a regra é diferente)
-      if (ctx === 'pessoal' && uid && coll !== 'users' && coll !== 'activity_logs') {
-        filters.push(`user_id="${uid}"`);
-      }
 
       if (ctx) filters.push(`context="${ctx}"`);
       if (opts?.from && opts?.to) {
         const col = opts.dateColumn || 'date';
         filters.push(`${col}>="${opts.from}"`);
-        filters.push(`${col}<="${opts.to}"`);
+        const toVal = opts.to.length === 10 ? `${opts.to}T23:59:59.999Z` : opts.to;
+        filters.push(`${col}<="${toVal}"`);
       }
       if (opts?.groupId) {
         filters.push(`group_id="${opts.groupId}"`);

@@ -57,8 +57,12 @@ export default function Dashboard() {
     profit: 0,
     cardSpending: 0,
     received: 0,
-    pending: 0,
+    receivable: 0,
+    paid: 0,
+    payable: 0,
     overdue: 0,
+    overdueRevenue: 0,
+    overdueExpense: 0,
     newContracts: 0,
     cancelledContracts: 0,
     commercialGoal: 85000,
@@ -145,8 +149,11 @@ export default function Dashboard() {
       let newC = 0;
       let cancC = 0;
       let rec = 0;
-      let pend = 0;
-      let over = 0;
+      let recPending = 0;
+      let recOver = 0;
+      let expPaid = 0;
+      let expPending = 0;
+      let expOver = 0;
       const cardMap: Record<string, { id: string, name: string, bank?: string, lastDigits?: string, value: number }> = {};
       
       allCards.forEach((c: any) => {
@@ -178,14 +185,17 @@ export default function Dashboard() {
         if (t.type === 'receita') {
           rev += portion;
           if (t.status === 'recebido' || t.status === 'pago') rec += portion;
-          else if (t.status === 'a_receber' || t.status === 'pendente') pend += portion;
-          else if (t.status === 'atrasado') over += portion;
+          else if (t.status === 'a_receber' || t.status === 'pendente') recPending += portion;
+          else if (t.status === 'atrasado') recOver += portion;
 
           if ((t.category || '').toLowerCase().includes('contrato') || (t.description || '').toLowerCase().includes('novo contrato')) {
             newC++;
           }
         } else {
           exp += portion;
+          if (t.status === 'pago' || t.status === 'recebido') expPaid += portion;
+          else if (t.status === 'a_pagar' || t.status === 'pendente') expPending += portion;
+          else if (t.status === 'atrasado') expOver += portion;
           
           if ((t.description || '').toLowerCase().includes('cancelamento') || (t.description || '').toLowerCase().includes('cancelado')) {
             cancC++;
@@ -225,8 +235,12 @@ export default function Dashboard() {
         profit: rev - exp,
         cardSpending: card,
         received: rec,
-        pending: pend,
-        overdue: over,
+        receivable: recPending,
+        paid: expPaid,
+        payable: expPending,
+        overdue: recOver + expOver,
+        overdueRevenue: recOver,
+        overdueExpense: expOver,
         newContracts: newC,
         cancelledContracts: cancC,
         cardBreakdown: Object.values(cardMap).sort((a, b) => b.value - a.value),
@@ -409,27 +423,47 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Status de Pagamentos Card */}
+          {/* Status Financeiro Card */}
           <div className="bg-surface-container-lowest p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-outline-variant/20 group hover:translate-y-[-4px] transition-all duration-300">
-            <div className="flex items-start justify-between mb-4">
+            <div className="flex items-start justify-between mb-3">
               <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary">
                 <Activity size={24} />
               </div>
             </div>
-            <p className="text-on-surface-variant text-xs font-bold uppercase tracking-widest mb-1">Status Pagamentos</p>
-            <div className="space-y-1 mt-2">
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-black text-success uppercase">Recebido</span>
-                <span className="text-xs font-black text-on-surface">{formatCurrency(metrics.received)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-black text-amber-600 uppercase">Pendente</span>
-                <span className="text-xs font-black text-on-surface">{formatCurrency(metrics.pending)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-black text-error uppercase">Atrasado</span>
-                <span className="text-xs font-black text-on-surface">{formatCurrency(metrics.overdue)}</span>
-              </div>
+            <p className="text-on-surface-variant text-xs font-bold uppercase tracking-widest mb-1.5">
+              {filters.type === 'receita' ? 'Status Recebimentos' : filters.type === 'despesa' ? 'Status Pagamentos' : 'Status do Mês'}
+            </p>
+            <div className="space-y-1.5 mt-2">
+              {filters.type !== 'despesa' && (
+                <>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-black text-success uppercase">Recebido</span>
+                    <span className="text-xs font-black text-on-surface">{formatCurrency(metrics.received)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-black text-emerald-600 uppercase">A Receber</span>
+                    <span className="text-xs font-black text-on-surface">{formatCurrency(metrics.receivable)}</span>
+                  </div>
+                </>
+              )}
+              {filters.type !== 'receita' && (
+                <>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-black text-blue-600 uppercase">Pago</span>
+                    <span className="text-xs font-black text-on-surface">{formatCurrency(metrics.paid)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-black text-amber-600 uppercase">A Pagar</span>
+                    <span className="text-xs font-black text-on-surface">{formatCurrency(metrics.payable)}</span>
+                  </div>
+                </>
+              )}
+              {metrics.overdue > 0 && (
+                <div className="flex justify-between items-center pt-1 border-t border-outline-variant/20">
+                  <span className="text-[10px] font-black text-error uppercase">Atrasado</span>
+                  <span className="text-xs font-black text-error">{formatCurrency(metrics.overdue)}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
