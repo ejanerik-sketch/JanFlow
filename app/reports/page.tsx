@@ -32,7 +32,8 @@ import {
   Printer,
   Eye,
   EyeOff,
-  X
+  X,
+  ExternalLink
 } from 'lucide-react';
 import { localDB } from '@/lib/localDB';
 import { format, startOfMonth, endOfMonth, subMonths, getYear, setYear, setMonth, addMonths, startOfYear, endOfYear, subYears, isSameMonth, isSameYear, parseISO, isWithinInterval } from 'date-fns';
@@ -136,7 +137,18 @@ export default function ReportsPage() {
       const end = viewMode === 'mensal' ? endOfMonth(selectedMonth) : endOfYear(selectedMonth);
 
       const rawAllTrans = await localDB.get('transactions', user.uid, context);
-      const allTrans = rawAllTrans.map((t: any) => {
+      
+      // Carregar também transações compartilhadas caso estejamos em empresa
+      let sharedExtra: any[] = [];
+      if (context !== 'pessoal') {
+        try {
+          const personalTrans = await localDB.get('transactions', user.uid, 'pessoal');
+          sharedExtra = personalTrans.filter((t: any) => t.isShared && t.sharedWith);
+        } catch {}
+      }
+
+      const allTransRaw = [...rawAllTrans, ...sharedExtra];
+      const allTrans = allTransRaw.map((t: any) => {
         let userPortion = t.value;
         if (t.isShared && t.sharedSplit) {
           try {
@@ -147,20 +159,18 @@ export default function ReportsPage() {
           } catch {}
         }
         return { ...t, originalValue: t.value, value: userPortion };
-      }).filter((t: any) => t.value > 0 || t.isShared); // Keep 0-portion if it's shared for the family report
+      }).filter((t: any) => t.value > 0 || t.isShared);
 
       setAllTransactions(allTrans);
       
-      const getEffectiveDate = (t: any): Date => {
-        return parseLocalDate(t.purchaseDate || t.date);
-      };
-
+      // O relatório do mês reflete as entradas e saídas que vencem/ocorrem no período
       const filtered = allTrans.filter((t: any) => {
-        const tDate = getEffectiveDate(t);
+        if (t.context && t.context !== context && sharedExtra.some(st => st.id === t.id)) return false;
+        const tDate = parseLocalDate(t.date);
         return tDate >= start && tDate <= end;
       }).sort((a: any, b: any) => {
-        const dateA = getEffectiveDate(a).getTime();
-        const dateB = getEffectiveDate(b).getTime();
+        const dateA = parseLocalDate(a.date).getTime();
+        const dateB = parseLocalDate(b.date).getTime();
         return dateA - dateB;
       });
 
@@ -177,13 +187,14 @@ export default function ReportsPage() {
         const prevYearStart = startOfYear(subYears(selectedMonth, 1));
         const prevYearEnd = endOfYear(subYears(selectedMonth, 1));
         const prevYearTrans = allTrans.filter((t: any) => {
-          const tDate = getEffectiveDate(t);
+          if (t.context && t.context !== context && sharedExtra.some(st => st.id === t.id)) return false;
+          const tDate = parseLocalDate(t.date);
           return tDate >= prevYearStart && tDate <= prevYearEnd;
         });
         
         // Group by month for comparison
         const currentYearByMonth = Array.from({ length: 12 }, (_, i) => {
-          const monthTrans = filtered.filter((t: any) => getEffectiveDate(t).getMonth() === i);
+          const monthTrans = filtered.filter((t: any) => parseLocalDate(t.date).getMonth() === i);
           return {
             month: format(new Date(2000, i, 1), 'MMM', { locale: ptBR }),
             current: monthTrans.reduce((acc: number, t: any) => t.type === 'receita' ? acc + t.value : acc - t.value, 0),
@@ -192,7 +203,7 @@ export default function ReportsPage() {
         });
 
         const prevYearByMonth = Array.from({ length: 12 }, (_, i) => {
-          const monthTrans = prevYearTrans.filter((t: any) => getEffectiveDate(t).getMonth() === i);
+          const monthTrans = prevYearTrans.filter((t: any) => parseLocalDate(t.date).getMonth() === i);
           return monthTrans.reduce((acc: number, t: any) => t.type === 'receita' ? acc + t.value : acc - t.value, 0);
         });
 
@@ -212,7 +223,7 @@ export default function ReportsPage() {
     
     return Array.from({ length: 12 }, (_, i) => {
       const monthTrans = allTransactions.filter((t: any) => {
-        const tDate = parseLocalDate(t.purchaseDate || t.date);
+        const tDate = parseLocalDate(t.date);
         return tDate.getFullYear() === getYear(selectedMonth) && tDate.getMonth() === i;
       });
       
@@ -237,7 +248,7 @@ export default function ReportsPage() {
     
     return Array.from({ length: 12 }, (_, i) => {
       const monthTrans = allTransactions.filter((t: any) => {
-        const tDate = parseLocalDate(t.purchaseDate || t.date);
+        const tDate = parseLocalDate(t.date);
         return tDate.getFullYear() === getYear(selectedMonth) && tDate.getMonth() === i;
       });
       
@@ -254,6 +265,36 @@ export default function ReportsPage() {
       return monthData;
     });
   }, [user, selectedMonth, viewMode, cards, allTransactions]);
+
+  // Função auxiliar para exibir a data real em que a compra parcelada ocorreu
+  const getPurchaseDateDisplay = (t: any) => {
+    if (t.purchaseDate && (t.currentInstallment <= 1 || t.purchaseDate !== t.date)) {
+      try {
+        return format(parseLocalDate(t.purchaseDate), 'dd/MM/yyyy');
+      } catch {}
+    }
+    if (t.firstInstallmentDate) {
+      try {
+        return format(parseLocalDate(t.firstInstallmentDate), 'dd/MM/yyyy');
+      } catch {}
+    }
+    if (t.currentInstallment && t.currentInstallment > 1 && t.date) {
+      try {
+        const calcDate = subMonths(parseLocalDate(t.date), t.currentInstallment - 1);
+        return format(calcDate, 'dd/MM/yyyy');
+      } catch {}
+    }
+    if (t.purchaseDate) {
+      try {
+        return format(parseLocalDate(t.purchaseDate), 'dd/MM/yyyy');
+      } catch {}
+    }
+    try {
+      return format(parseLocalDate(t.date), 'dd/MM/yyyy');
+    } catch {
+      return '-';
+    }
+  };
 
   if (!isAuthReady || !user) return null;
 
@@ -294,9 +335,27 @@ export default function ReportsPage() {
     return acc;
   }, []);
 
-  // Fixed vs Variable
-  const fixedExpenses = transactions.filter((t: any) => t.type === 'despesa' && t.recurrent).reduce((acc: number, t: any) => acc + t.value, 0);
-  const variableExpenses = transactions.filter((t: any) => t.type === 'despesa' && !t.recurrent).reduce((acc: number, t: any) => acc + t.value, 0);
+  // Totais Gerais e Divisão Fixas vs Variáveis
+  const totalRevenue = transactions
+    .filter((t: any) => t.type === 'receita')
+    .reduce((acc: number, t: any) => acc + t.value, 0);
+
+  const totalExpenses = transactions
+    .filter((t: any) => t.type === 'despesa')
+    .reduce((acc: number, t: any) => acc + t.value, 0);
+
+  const isFixed = (t: any) => {
+    if (t.type !== 'despesa') return false;
+    if (t.recurrent) return true;
+    const cat = categories.find(c => c.name === t.category);
+    return cat?.flow === 'despesa_fixa';
+  };
+
+  const fixedExpenses = transactions
+    .filter((t: any) => isFixed(t))
+    .reduce((acc: number, t: any) => acc + t.value, 0);
+
+  const variableExpenses = Math.max(0, totalExpenses - fixedExpenses);
 
   // Card breakdown
   const cardMap: Record<string, { id: string, name: string, bank: string, lastDigits: string, spending: number, originalSpending?: number }> = {};
@@ -400,14 +459,20 @@ export default function ReportsPage() {
     return acc;
   }, { count: 0, total: 0, groups: new Set() });
 
-  // Shared Purchases (Pessoal only) — grouped by groupId to avoid duplicates
-  const sharedPurchases = transactions.filter((t: any) => t.context === 'pessoal' && t.isShared && t.sharedWith);
+  // Shared Purchases — no mês/período selecionado, obedece a data da parcela/fatura do cartão (t.date)
+  const sharedPurchases = allTransactions.filter((t: any) => {
+    if (!t.isShared || !t.sharedWith) return false;
+    const tDate = parseLocalDate(t.date);
+    const start = viewMode === 'mensal' ? startOfMonth(selectedMonth) : startOfYear(selectedMonth);
+    const end = viewMode === 'mensal' ? endOfMonth(selectedMonth) : endOfYear(selectedMonth);
+    return tDate >= start && tDate <= end;
+  });
   
-  // Deduplicate: group installments by groupId so the same purchase doesn't appear multiple times
+  // Deduplicate: group installments by groupId so the same purchase doesn't appear multiple times in the same month
   const uniqueSharedPurchases: any[] = [];
   const seenGroupIds = new Set<string>();
   sharedPurchases.forEach((t: any) => {
-    if (t.groupId && seenGroupIds.has(t.groupId)) return; // Skip duplicate installment groups
+    if (t.groupId && seenGroupIds.has(t.groupId)) return;
     if (t.groupId) seenGroupIds.add(t.groupId);
     uniqueSharedPurchases.push(t);
   });
@@ -859,68 +924,83 @@ export default function ReportsPage() {
         </div>
 
         {/* Summary Metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-          <div className="bg-surface-container-lowest p-6 rounded-3xl border border-outline-variant/20 shadow-sm">
-            <div className="flex items-center gap-4 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Card 1: Total Receitas */}
+          <div className="bg-surface-container-lowest p-6 rounded-3xl border border-outline-variant/20 shadow-sm flex flex-col justify-between">
+            <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 bg-success/10 text-success rounded-xl flex items-center justify-center">
                 <TrendingUp size={20} />
               </div>
-              <p className="text-xs font-black uppercase tracking-widest text-on-surface-variant">Total Receitas</p>
-            </div>
-            <h3 className="text-2xl font-black text-on-surface">
-              {formatCurrency(transactions.filter((t: any) => t.type === 'receita').reduce((acc: number, t: any) => acc + t.value, 0))}
-            </h3>
-          </div>
-
-          <div className="bg-surface-container-lowest p-6 rounded-3xl border border-outline-variant/20 shadow-sm">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="w-10 h-10 bg-error/10 text-error rounded-xl flex items-center justify-center">
-                <TrendingDown size={20} />
+              <div>
+                <p className="text-xs font-black uppercase tracking-widest text-on-surface-variant">Total Receitas</p>
+                <p className="text-[10px] text-on-surface-variant/70 font-medium">Entradas do período</p>
               </div>
-              <p className="text-xs font-black uppercase tracking-widest text-on-surface-variant">Despesas Fixas</p>
             </div>
-            <h3 className="text-2xl font-black text-on-surface">
-              {formatCurrency(fixedExpenses)}
-            </h3>
-          </div>
-
-          <div className="bg-surface-container-lowest p-6 rounded-3xl border border-outline-variant/20 shadow-sm">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="w-10 h-10 bg-amber-500/10 text-amber-500 rounded-xl flex items-center justify-center">
-                <Layers size={20} />
-              </div>
-              <p className="text-xs font-black uppercase tracking-widest text-on-surface-variant">Despesas Variáveis</p>
-            </div>
-            <h3 className="text-2xl font-black text-on-surface">
-              {formatCurrency(variableExpenses)}
-            </h3>
-          </div>
-
-          <div className="bg-surface-container-lowest p-6 rounded-3xl border border-outline-variant/20 shadow-sm">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="w-10 h-10 bg-error/10 text-error rounded-xl flex items-center justify-center">
-                <TrendingDown size={20} />
-              </div>
-              <p className="text-xs font-black uppercase tracking-widest text-on-surface-variant">Despesas Totais</p>
-            </div>
-            <h3 className="text-2xl font-black text-on-surface">
-              {formatCurrency(fixedExpenses + variableExpenses)}
-            </h3>
-          </div>
-
-          {isBusiness && (
-            <div className={cn("p-6 rounded-3xl border shadow-lg", themeBorder, themeBg)}>
-              <div className="flex items-center gap-4 mb-4">
-                <div className="w-10 h-10 bg-white/20 text-white rounded-xl flex items-center justify-center">
-                  <Activity size={20} />
-                </div>
-                <p className="text-xs font-black uppercase tracking-widest text-white/70">Lucro Real</p>
-              </div>
-              <h3 className="text-2xl font-black text-white">
-                {formatCurrency(transactions.reduce((acc: number, t: any) => t.type === 'receita' ? acc + t.value : acc - t.value, 0))}
+            <div>
+              <h3 className="text-3xl font-black text-on-surface">
+                {formatCurrency(totalRevenue)}
               </h3>
+              <p className="text-xs text-success font-bold mt-1">
+                {transactions.filter((t: any) => t.type === 'receita').length} lançamentos
+              </p>
             </div>
-          )}
+          </div>
+
+          {/* Card 2: Despesas Totais com Fixas e Variáveis integradas */}
+          <div className="bg-surface-container-lowest p-6 rounded-3xl border border-outline-variant/20 shadow-sm flex flex-col justify-between">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 bg-error/10 text-error rounded-xl flex items-center justify-center">
+                <TrendingDown size={20} />
+              </div>
+              <div>
+                <p className="text-xs font-black uppercase tracking-widest text-on-surface-variant">Despesas Totais</p>
+                <p className="text-[10px] text-on-surface-variant/70 font-medium">Saídas do período</p>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-3xl font-black text-error">
+                {formatCurrency(totalExpenses)}
+              </h3>
+
+              {/* Listagem menor ao lado/integrada de Fixas e Variáveis */}
+              <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-outline-variant/15">
+                <div className="bg-surface-container-high/50 rounded-2xl p-2.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-on-surface-variant block">Fixas</span>
+                  <span className="text-xs font-black text-on-surface">{formatCurrency(fixedExpenses)}</span>
+                </div>
+                <div className="bg-surface-container-high/50 rounded-2xl p-2.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-on-surface-variant block">Variáveis</span>
+                  <span className="text-xs font-black text-on-surface">{formatCurrency(variableExpenses)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 3: Lucro Real / Saldo Líquido */}
+          <div className={cn("p-6 rounded-3xl border shadow-lg flex flex-col justify-between", themeBorder, themeBg)}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-white/20 text-white rounded-xl flex items-center justify-center">
+                <Activity size={20} />
+              </div>
+              <div>
+                <p className="text-xs font-black uppercase tracking-widest text-white/80">
+                  {isBusiness ? 'Lucro Real' : 'Saldo Líquido'}
+                </p>
+                <p className="text-[10px] text-white/60 font-medium">Receitas (-) Despesas</p>
+              </div>
+            </div>
+            <div>
+              <h3 className="text-3xl font-black text-white">
+                {formatCurrency(totalRevenue - totalExpenses)}
+              </h3>
+              <p className="text-xs text-white/70 font-bold mt-1">
+                {totalRevenue > 0 
+                  ? `Margem de ${Math.round(((totalRevenue - totalExpenses) / totalRevenue) * 100)}%`
+                  : 'Resultado do período'}
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
@@ -1204,7 +1284,7 @@ export default function ReportsPage() {
           <div className="flex items-center justify-between mb-8">
             <div>
               <h3 className="text-xl font-black text-on-surface">Compras Parceladas</h3>
-              <p className="text-sm text-on-surface-variant font-medium">Controle de parcelas futuras (Cartão e Financiamento)</p>
+              <p className="text-sm text-on-surface-variant font-medium">Controle de parcelas futuras (Cartão e Financiamento) — Clique na linha para abrir o lançamento</p>
             </div>
             <Calendar size={24} className="text-on-surface-variant opacity-40" />
           </div>
@@ -1220,31 +1300,69 @@ export default function ReportsPage() {
                   <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Parcelas</th>
                   <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Valor Parcela</th>
                   <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Vencimento</th>
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant text-right">Ação</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant/10">
                 {transactions
                   .filter((t: any) => (t.paymentMethod === 'cartao_credito' || t.paymentMethod === 'financiamento') && t.installments > 1)
-                  .map((t, idx) => (
-                    <tr key={idx} className="group hover:bg-surface-container-low transition-colors">
-                      <td className="py-4 text-sm font-bold text-on-surface">{t.entityName || t.description}</td>
-                      <td className="py-4 text-xs font-bold text-on-surface-variant uppercase">{t.paymentMethod.replace('_', ' ')}</td>
-                      <td className="py-4 text-xs font-medium text-on-surface-variant">
-                        {format(parseLocalDate(t.purchaseDate || t.date), 'dd/MM/yyyy')}
-                      </td>
-                      <td className="py-4 text-sm font-black text-on-surface">{formatCurrency(t.value * t.installments)}</td>
-                      <td className="py-4 text-sm font-bold text-on-surface-variant">
-                        {t.currentInstallment ? `${t.currentInstallment}/${t.installments}` : `${t.installments}x`}
-                      </td>
-                      <td className="py-4 text-sm font-black text-primary">{formatCurrency(t.value)}</td>
-                      <td className="py-4 text-sm font-bold text-on-surface-variant">
-                        {format(parseLocalDate(t.date), 'dd/MM/yyyy')}
-                      </td>
-                    </tr>
-                  ))}
+                  .map((t, idx) => {
+                    const originalPurchaseDate = getPurchaseDateDisplay(t);
+                    return (
+                      <tr 
+                        key={t.id || idx} 
+                        onClick={() => router.push(`/transactions?editId=${t.id}&month=${t.date}`)}
+                        className="group hover:bg-primary/5 cursor-pointer transition-colors"
+                        title="Clique para abrir e ver este lançamento"
+                      >
+                        <td className="py-4">
+                          <div className="text-sm font-bold text-on-surface group-hover:text-primary transition-colors flex items-center gap-1.5">
+                            <span>{t.entityName || t.description}</span>
+                          </div>
+                          {t.entityName && t.description && t.description !== t.entityName && (
+                            <div className="text-xs text-on-surface-variant font-medium mt-0.5 line-clamp-1">
+                              {t.description.replace(/\s*\(\d+\/\d+\)\s*$/, '')}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-4 text-xs font-bold text-on-surface-variant uppercase">
+                          {t.paymentMethod === 'cartao_credito' ? 'Cartão Crédito' : t.paymentMethod.replace('_', ' ')}
+                        </td>
+                        <td className="py-4 text-xs font-semibold text-on-surface-variant">
+                          {originalPurchaseDate}
+                        </td>
+                        <td className="py-4 text-sm font-black text-on-surface">
+                          {formatCurrency(t.originalValue ? t.originalValue * t.installments : t.value * t.installments)}
+                        </td>
+                        <td className="py-4 text-sm font-bold text-on-surface-variant">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black bg-surface-container-high text-on-surface">
+                            {t.currentInstallment ? `${t.currentInstallment}/${t.installments}` : `${t.installments}x`}
+                          </span>
+                        </td>
+                        <td className="py-4 text-sm font-black text-primary">
+                          {formatCurrency(t.value)}
+                        </td>
+                        <td className="py-4 text-sm font-bold text-on-surface-variant">
+                          {format(parseLocalDate(t.date), 'dd/MM/yyyy')}
+                        </td>
+                        <td className="py-4 text-right pr-2">
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              router.push(`/transactions?editId=${t.id}&month=${t.date}`);
+                            }}
+                            className="p-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors inline-flex items-center gap-1 text-xs font-bold"
+                            title="Abrir nos Lançamentos"
+                          >
+                            <ExternalLink size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 {transactions.filter((t: any) => (t.paymentMethod === 'cartao_credito' || t.paymentMethod === 'financiamento') && t.installments > 1).length === 0 && (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-sm text-on-surface-variant italic">Nenhuma compra parcelada encontrada.</td>
+                    <td colSpan={8} className="py-8 text-center text-sm text-on-surface-variant italic">Nenhuma compra parcelada encontrada para este período.</td>
                   </tr>
                 )}
               </tbody>
@@ -1252,13 +1370,13 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {/* Compras Compartilhadas (Pessoal Only) */}
-        {context === 'pessoal' && Object.keys(sharedByPerson).length > 0 && (
+        {/* Compras Compartilhadas */}
+        {Object.keys(sharedByPerson).length > 0 && (
           <div className="bg-surface-container-lowest p-4 md:p-8 rounded-[32px] border border-outline-variant/20 shadow-sm">
             <div className="flex items-center justify-between mb-8">
               <div>
                 <h3 className="text-xl font-black text-on-surface">Compras Compartilhadas (Família)</h3>
-                <p className="text-sm text-on-surface-variant font-medium">Detalhamento por pessoa — parcelas do mês</p>
+                <p className="text-sm text-on-surface-variant font-medium">Detalhamento por pessoa — parcelas e faturas do mês (clique para abrir)</p>
               </div>
               <UserIcon size={24} className="text-on-surface-variant opacity-40" />
             </div>
@@ -1288,15 +1406,21 @@ export default function ReportsPage() {
                           <th className="text-right px-3 md:px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-primary/80 hidden md:table-cell">Valor Total</th>
                           <th className="text-right px-3 md:px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-primary/80">Parcela do Mês</th>
                           <th className="text-center px-3 md:px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-primary/80">Parcela</th>
+                          <th className="text-right px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-primary/80">Ação</th>
                         </tr>
                       </thead>
                       <tbody>
                         {data.items.map((t: any, idx: number) => (
-                          <tr key={idx} className="border-b border-outline-variant/10 last:border-0 hover:bg-surface-container-high/30 transition-colors">
+                          <tr 
+                            key={t.id || idx} 
+                            onClick={() => router.push(`/transactions?editId=${t.id}&month=${t.date}`)}
+                            className="border-b border-outline-variant/10 last:border-0 hover:bg-primary/5 cursor-pointer transition-colors group"
+                            title="Clique para abrir e ver este lançamento"
+                          >
                             <td className="px-3 md:px-4 py-3">
-                              <Link href={`/transactions?edit=${t.id}`} className="text-xs font-bold text-on-surface hover:text-primary transition-colors">
-                                {t.cleanEntityName || t.entityName}
-                              </Link>
+                              <span className="text-xs font-bold text-on-surface group-hover:text-primary transition-colors flex items-center gap-1.5">
+                                <span>{t.cleanEntityName || t.entityName}</span>
+                              </span>
                             </td>
                             <td className="px-3 md:px-4 py-3 text-xs text-on-surface-variant font-medium hidden sm:table-cell">
                               {t.description ? t.description.replace(/\s*\(\d+\/\d+\)\s*$/, '').trim() : '-'}
@@ -1316,6 +1440,18 @@ export default function ReportsPage() {
                                 <span className="text-[9px] font-bold text-on-surface-variant uppercase">Única</span>
                               )}
                             </td>
+                            <td className="px-3 py-3 text-right">
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  router.push(`/transactions?editId=${t.id}&month=${t.date}`);
+                                }}
+                                className="p-1 rounded-lg text-on-surface-variant group-hover:text-primary transition-colors"
+                                title="Abrir nos Lançamentos"
+                              >
+                                <ExternalLink size={14} />
+                              </button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -1325,7 +1461,7 @@ export default function ReportsPage() {
                           <td colSpan={3} className="px-4 md:px-6 py-3 text-xs font-black text-on-surface-variant uppercase tracking-widest text-right md:hidden">Total:</td>
                           <td className="px-4 md:px-6 py-3 text-sm font-black text-primary text-right hidden md:table-cell">{formatCurrency(data.total)}</td>
                           <td className="px-4 md:px-6 py-3 text-sm font-black text-primary text-right md:hidden">{formatCurrency(data.total)}</td>
-                          <td></td>
+                          <td colSpan={2}></td>
                         </tr>
                       </tfoot>
                     </table>
