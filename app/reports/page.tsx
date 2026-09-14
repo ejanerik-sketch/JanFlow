@@ -135,12 +135,7 @@ export default function ReportsPage() {
       const start = viewMode === 'mensal' ? startOfMonth(selectedMonth) : startOfYear(selectedMonth);
       const end = viewMode === 'mensal' ? endOfMonth(selectedMonth) : endOfYear(selectedMonth);
 
-      const fetchStart = startOfYear(selectedMonth);
-      const fetchEnd = endOfYear(selectedMonth);
-      const from = format(fetchStart, 'yyyy-MM-dd');
-      const to = format(fetchEnd, 'yyyy-MM-dd');
-
-      const rawAllTrans = await localDB.get('transactions', user.uid, context, { from, to });
+      const rawAllTrans = await localDB.get('transactions', user.uid, context);
       const allTrans = rawAllTrans.map((t: any) => {
         let userPortion = t.value;
         if (t.isShared && t.sharedSplit) {
@@ -156,12 +151,16 @@ export default function ReportsPage() {
 
       setAllTransactions(allTrans);
       
+      const getEffectiveDate = (t: any): Date => {
+        return parseLocalDate(t.purchaseDate || t.date);
+      };
+
       const filtered = allTrans.filter((t: any) => {
-        const tDate = parseLocalDate(t.date);
+        const tDate = getEffectiveDate(t);
         return tDate >= start && tDate <= end;
       }).sort((a: any, b: any) => {
-        const dateA = parseLocalDate(a.date).getTime();
-        const dateB = parseLocalDate(b.date).getTime();
+        const dateA = getEffectiveDate(a).getTime();
+        const dateB = getEffectiveDate(b).getTime();
         return dateA - dateB;
       });
 
@@ -178,13 +177,13 @@ export default function ReportsPage() {
         const prevYearStart = startOfYear(subYears(selectedMonth, 1));
         const prevYearEnd = endOfYear(subYears(selectedMonth, 1));
         const prevYearTrans = allTrans.filter((t: any) => {
-          const tDate = parseLocalDate(t.date);
+          const tDate = getEffectiveDate(t);
           return tDate >= prevYearStart && tDate <= prevYearEnd;
         });
         
         // Group by month for comparison
         const currentYearByMonth = Array.from({ length: 12 }, (_, i) => {
-          const monthTrans = filtered.filter((t: any) => parseLocalDate(t.date).getMonth() === i);
+          const monthTrans = filtered.filter((t: any) => getEffectiveDate(t).getMonth() === i);
           return {
             month: format(new Date(2000, i, 1), 'MMM', { locale: ptBR }),
             current: monthTrans.reduce((acc: number, t: any) => t.type === 'receita' ? acc + t.value : acc - t.value, 0),
@@ -193,7 +192,7 @@ export default function ReportsPage() {
         });
 
         const prevYearByMonth = Array.from({ length: 12 }, (_, i) => {
-          const monthTrans = prevYearTrans.filter((t: any) => parseLocalDate(t.date).getMonth() === i);
+          const monthTrans = prevYearTrans.filter((t: any) => getEffectiveDate(t).getMonth() === i);
           return monthTrans.reduce((acc: number, t: any) => t.type === 'receita' ? acc + t.value : acc - t.value, 0);
         });
 
@@ -213,7 +212,7 @@ export default function ReportsPage() {
     
     return Array.from({ length: 12 }, (_, i) => {
       const monthTrans = allTransactions.filter((t: any) => {
-        const tDate = parseLocalDate(t.date);
+        const tDate = parseLocalDate(t.purchaseDate || t.date);
         return tDate.getFullYear() === getYear(selectedMonth) && tDate.getMonth() === i;
       });
       
@@ -238,7 +237,7 @@ export default function ReportsPage() {
     
     return Array.from({ length: 12 }, (_, i) => {
       const monthTrans = allTransactions.filter((t: any) => {
-        const tDate = parseLocalDate(t.date);
+        const tDate = parseLocalDate(t.purchaseDate || t.date);
         return tDate.getFullYear() === getYear(selectedMonth) && tDate.getMonth() === i;
       });
       
@@ -328,7 +327,7 @@ export default function ReportsPage() {
     .reduce((acc: number, t: any) => acc + t.value, 0);
 
   const dailyData = transactions.reduce((acc: any, t) => {
-    const tDate = parseLocalDate(t.date);
+    const tDate = parseLocalDate(t.purchaseDate || t.date);
     const day = viewMode === 'mensal' ? format(tDate, 'dd/MM') : format(tDate, 'MMM', { locale: ptBR });
     const existing = acc.find((item: any) => item.day === day);
     if (existing) {
@@ -456,7 +455,8 @@ export default function ReportsPage() {
       const wb = XLSX.utils.book_new();
 
       const transData = trans.map((t: any) => ({
-        Data: t.date ? format(parseLocalDate(t.date), 'dd/MM/yyyy') : '',
+        'Data Compra': t.purchaseDate ? format(parseLocalDate(t.purchaseDate), 'dd/MM/yyyy') : (t.date ? format(parseLocalDate(t.date), 'dd/MM/yyyy') : ''),
+        'Data Vencimento/Fatura': t.date ? format(parseLocalDate(t.date), 'dd/MM/yyyy') : '',
         Tipo: t.type === 'receita' ? 'Receita' : 'Despesa',
         Entidade: t.entityName,
         Descrição: t.description || '',
@@ -1215,10 +1215,11 @@ export default function ReportsPage() {
                 <tr className="border-b border-outline-variant/10">
                   <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Descrição</th>
                   <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Método</th>
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Data Compra</th>
                   <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Valor Total</th>
                   <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Parcelas</th>
                   <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Valor Parcela</th>
-                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Próxima</th>
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Vencimento</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant/10">
@@ -1228,8 +1229,13 @@ export default function ReportsPage() {
                     <tr key={idx} className="group hover:bg-surface-container-low transition-colors">
                       <td className="py-4 text-sm font-bold text-on-surface">{t.entityName || t.description}</td>
                       <td className="py-4 text-xs font-bold text-on-surface-variant uppercase">{t.paymentMethod.replace('_', ' ')}</td>
+                      <td className="py-4 text-xs font-medium text-on-surface-variant">
+                        {format(parseLocalDate(t.purchaseDate || t.date), 'dd/MM/yyyy')}
+                      </td>
                       <td className="py-4 text-sm font-black text-on-surface">{formatCurrency(t.value * t.installments)}</td>
-                      <td className="py-4 text-sm font-bold text-on-surface-variant">{t.installments}x</td>
+                      <td className="py-4 text-sm font-bold text-on-surface-variant">
+                        {t.currentInstallment ? `${t.currentInstallment}/${t.installments}` : `${t.installments}x`}
+                      </td>
                       <td className="py-4 text-sm font-black text-primary">{formatCurrency(t.value)}</td>
                       <td className="py-4 text-sm font-bold text-on-surface-variant">
                         {format(parseLocalDate(t.date), 'dd/MM/yyyy')}
@@ -1238,7 +1244,7 @@ export default function ReportsPage() {
                   ))}
                 {transactions.filter((t: any) => (t.paymentMethod === 'cartao_credito' || t.paymentMethod === 'financiamento') && t.installments > 1).length === 0 && (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-sm text-on-surface-variant italic">Nenhuma compra parcelada encontrada.</td>
+                    <td colSpan={7} className="py-8 text-center text-sm text-on-surface-variant italic">Nenhuma compra parcelada encontrada.</td>
                   </tr>
                 )}
               </tbody>

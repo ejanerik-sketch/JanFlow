@@ -731,7 +731,7 @@ export default function CardsPage() {
                                   </div>
                                   <div className="flex items-center gap-2 flex-wrap mt-0.5">
                                     <p className="text-xs text-on-surface-variant font-medium">
-                                      {t.category} • {format(parseLocalDate(t.date), 'dd MMM', { locale: ptBR })}
+                                      {t.category} • {format(parseLocalDate(t.purchaseDate || t.date), 'dd MMM', { locale: ptBR })}
                                     </p>
                                     {t.createdBy && (
                                       <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-md">
@@ -741,6 +741,11 @@ export default function CardsPage() {
                                     {t.currentInstallment && t.installments > 1 && (
                                       <span className="text-[10px] font-black bg-surface-container-highest px-2 py-0.5 rounded-full text-on-surface-variant">
                                         Parcela {t.currentInstallment}/{t.installments}
+                                      </span>
+                                    )}
+                                    {t.purchaseDate && (
+                                      <span className="text-[10px] font-medium text-on-surface-variant bg-surface-container-high px-2 py-0.5 rounded-md">
+                                        Compra em {format(parseLocalDate(t.purchaseDate), 'dd/MM/yyyy')}
                                       </span>
                                     )}
                                   </div>

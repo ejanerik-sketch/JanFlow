@@ -48,7 +48,12 @@ export async function POST(req: Request) {
       let errorMsg = updateError.message || 'Erro ao atualizar usuário';
       if (updateError.data?.data) {
         const details = Object.entries(updateError.data.data)
-          .map(([k, v]: [string, any]) => `${k}: ${v.message || v.code}`)
+          .map(([k, v]: [string, any]) => {
+            if (k === 'photoURL') return 'Foto de perfil: Arquivo ou imagem muito grande.';
+            if (k === 'email') return 'E-mail: Este endereço de e-mail já está em uso ou é inválido.';
+            if (k === 'password') return 'Senha: Deve conter ao menos 6 caracteres.';
+            return `${k}: ${v.message || v.code}`;
+          })
           .join(', ');
         if (details) errorMsg = details;
       }

@@ -858,14 +858,15 @@ function ImageCropperModal({
     const img = imageRef.current;
     if (!img) return;
 
+    const targetDim = 256;
     const canvas = document.createElement('canvas');
-    canvas.width = 300;
-    canvas.height = 300;
+    canvas.width = targetDim;
+    canvas.height = targetDim;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, 300, 300);
+    ctx.fillRect(0, 0, targetDim, targetDim);
 
     const aspect = (img.naturalWidth || containerSize) / (img.naturalHeight || containerSize);
     let baseW = containerSize;
@@ -876,16 +877,16 @@ function ImageCropperModal({
       baseH = containerSize / aspect;
     }
 
-    const scale = 300 / containerSize;
+    const scale = targetDim / containerSize;
     const drawW = baseW * zoom * scale;
     const drawH = baseH * zoom * scale;
-    const drawX = (300 - drawW) / 2 + pan.x * scale;
-    const drawY = (300 - drawH) / 2 + pan.y * scale;
+    const drawX = (targetDim - drawW) / 2 + pan.x * scale;
+    const drawY = (targetDim - drawH) / 2 + pan.y * scale;
 
     ctx.drawImage(img, drawX, drawY, drawW, drawH);
 
-    // Salva com compressão automática JPEG de alta qualidade (~25KB)
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    // Salva com compressão automática JPEG otimizada (~12KB a 20KB)
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
     onConfirm(dataUrl);
   };
 

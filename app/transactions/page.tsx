@@ -1495,7 +1495,7 @@ function TransactionsContent() {
                         )}
                       >
                         <td className="px-6 py-5">
-                          <p className="text-sm font-bold text-on-surface">{format(parseLocalDate(t.purchaseDate || t.date), 'dd/MM/yyyy')}</p>
+                          <p className="text-sm font-bold text-on-surface">{format(parseLocalDate(t.date), 'dd/MM/yyyy')}</p>
                           {t.recurrent && <span className="text-[9px] font-black text-primary uppercase tracking-tighter">Recorrente</span>}
                         </td>
                         <td className="px-6 py-5">
@@ -1529,6 +1529,11 @@ function TransactionsContent() {
                                     {t.currentInstallment}/{t.installments}
                                   </span>
                                 )}
+                                {(t.installments > 1 || t.paymentMethod === 'cartao_credito') && t.purchaseDate && (
+                                  <span className="text-[9px] font-medium bg-surface-container-high px-2 py-0.5 rounded-md text-on-surface-variant/90 whitespace-nowrap">
+                                    Compra em {format(parseLocalDate(t.purchaseDate), 'dd/MM/yyyy')}
+                                  </span>
+                                )}
                               </div>
                             <p className="text-xs text-on-surface-variant font-medium truncate max-w-[200px]">{t.description || '-'}</p>
                             {t.sharedWith && (
@@ -1545,21 +1550,28 @@ function TransactionsContent() {
                         </span>
                       </td>
                       <td className="px-6 py-5">
-                        <select
-                          value={t.status}
-                          onChange={(e) => handleStatusChange(t.id, e.target.value)}
-                          className={cn(
-                            "text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border-none focus:ring-0 cursor-pointer",
-                            t.status === 'recebido' || t.status === 'pago' ? "bg-success/10 text-success" : 
-                            t.status === 'atrasado' ? "bg-error/10 text-error" : "bg-amber-500/10 text-amber-600"
-                          )}
-                        >
-                          <option value="recebido">Recebido</option>
-                          <option value="pago">Pago</option>
-                          <option value="a_receber">A Receber</option>
-                          <option value="a_pagar">A Pagar</option>
-                          <option value="atrasado">Atrasado</option>
-                        </select>
+                        {t.paymentMethod === 'cartao_credito' ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-surface-container-high text-on-surface-variant border border-outline-variant/30 whitespace-nowrap">
+                            <CreditCard size={12} className="text-primary" />
+                            Lançado na Fatura
+                          </span>
+                        ) : (
+                          <select
+                            value={t.status}
+                            onChange={(e) => handleStatusChange(t.id, e.target.value)}
+                            className={cn(
+                              "text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border-none focus:ring-0 cursor-pointer",
+                              t.status === 'recebido' || t.status === 'pago' ? "bg-success/10 text-success" : 
+                              t.status === 'atrasado' ? "bg-error/10 text-error" : "bg-amber-500/10 text-amber-600"
+                            )}
+                          >
+                            <option value="recebido">Recebido</option>
+                            <option value="pago">Pago</option>
+                            <option value="a_receber">A Receber</option>
+                            <option value="a_pagar">A Pagar</option>
+                            <option value="atrasado">Atrasado</option>
+                          </select>
+                        )}
                       </td>
                       <td className="px-6 py-5 whitespace-nowrap">
                         <p className={cn("text-sm font-black", t.type === 'receita' ? "text-success" : "text-error")}>
