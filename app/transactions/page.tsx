@@ -350,14 +350,25 @@ function TransactionsContent() {
 
   useEffect(() => {
     const fetchRelated = async () => {
-      if (editingTransaction && editingTransaction.installments > 1 && user) {
-        const allTrans = await localDB.get('transactions', user.uid, context);
-        const related = allTrans.filter((t: any) => 
-          (t.groupId && t.groupId === editingTransaction.groupId) ||
-          (!t.groupId && t.entityName === editingTransaction.entityName && t.installments === editingTransaction.installments &&
-           Math.abs(new Date(t.createdAt).getTime() - new Date(editingTransaction.createdAt).getTime()) < 10000)
-        ).sort((a: any, b: any) => (a.currentInstallment || 0) - (b.currentInstallment || 0));
-        
+      if (editingTransaction && Number(editingTransaction.installments || 1) > 1 && user) {
+        let related: any[] = [];
+        if (editingTransaction.groupId) {
+          try {
+            related = await localDB.get('transactions', user.uid, context, { groupId: editingTransaction.groupId }, true);
+          } catch (e) {
+            console.error('Erro buscando parcelas por groupId:', e);
+          }
+        }
+        if (!related || related.length === 0) {
+          const allTrans = await localDB.get('transactions', user.uid, context);
+          const cleanTarget = (editingTransaction.entityName || '').replace(/\s*\(\d+\/\d+\)\s*$/, '').trim().toLowerCase();
+          related = (allTrans || []).filter((t: any) => {
+            if (t.groupId && editingTransaction.groupId && t.groupId === editingTransaction.groupId) return true;
+            const cleanT = (t.entityName || '').replace(/\s*\(\d+\/\d+\)\s*$/, '').trim().toLowerCase();
+            return cleanT === cleanTarget && Number(t.installments) === Number(editingTransaction.installments) && (t.cardId === editingTransaction.cardId || t.card_id === editingTransaction.cardId);
+          });
+        }
+        related.sort((a: any, b: any) => (Number(a.currentInstallment) || 0) - (Number(b.currentInstallment) || 0));
         setRelatedInstallments(related);
       } else {
         setRelatedInstallments([]);
@@ -386,16 +397,6 @@ function TransactionsContent() {
       return [];
     }
 
-    if (editingTransaction && relatedInstallments.length > 0 && watchedInstallments === editingTransaction.installments) {
-      return relatedInstallments.map(t => ({
-        number: t.currentInstallment,
-        date: parseLocalDate(t.date),
-        value: t.value,
-        status: t.status,
-        isCurrent: t.id === editingTransaction.id
-      }));
-    }
-
     let startDate: Date;
     if (watchedFirstInstallmentMonth) {
       const [tYear, tMonth] = watchedFirstInstallmentMonth.split('-').map(Number);
@@ -415,12 +416,13 @@ function TransactionsContent() {
 
     for (let i = 0; i < watchedInstallments; i++) {
       const installmentDate = addMonths(startDate, i);
+      const existingT = relatedInstallments[i];
       previews.push({
         number: i + 1,
         date: installmentDate,
         value: installmentValue,
-        status: i === 0 ? watchedStatus : 'a_pagar',
-        isCurrent: false
+        status: existingT?.status || (i === 0 ? watchedStatus : 'a_pagar'),
+        isCurrent: editingTransaction && (editingTransaction.id === existingT?.id || (!existingT && editingTransaction.currentInstallment === (i + 1)))
       });
     }
     return previews;
@@ -654,27 +656,62 @@ function TransactionsContent() {
       (async () => {
         try {
           if (editingTransaction) {
-            if (relatedInstallments.length > 0 && data.installments === editingTransaction.installments) {
+            if (hasInstallments) {
+              let targets = relatedInstallments;
+              if (!targets || targets.length === 0) {
+                if (editingTransaction.groupId) {
+                  try {
+                    targets = await localDB.get('transactions', user.uid, context, { groupId: editingTransaction.groupId }, true);
+                  } catch (e) {
+                    console.error('Erro buscando parcelas por groupId:', e);
+                  }
+                }
+                if (!targets || targets.length === 0) {
+                  const allTrans = await localDB.get('transactions', user.uid, context);
+                  const cleanTarget = (editingTransaction.entityName || '').replace(/\s*\(\d+\/\d+\)\s*$/, '').trim().toLowerCase();
+                  targets = (allTrans || []).filter((t: any) => {
+                    if (t.groupId && editingTransaction.groupId && t.groupId === editingTransaction.groupId) return true;
+                    const cleanT = (t.entityName || '').replace(/\s*\(\d+\/\d+\)\s*$/, '').trim().toLowerCase();
+                    return cleanT === cleanTarget && Number(t.installments) === Number(editingTransaction.installments) && (t.cardId === editingTransaction.cardId || t.card_id === editingTransaction.cardId);
+                  });
+                }
+              }
+              targets = [...(targets || [])].sort((a: any, b: any) => (Number(a.currentInstallment) || 0) - (Number(b.currentInstallment) || 0));
+
               const installmentValue = data.value / data.installments;
               const rawDate = computedFirstInstallmentDate || (data.firstInstallmentDate || data.date);
               const baseDate = new Date(String(rawDate).slice(0, 10) + 'T12:00:00Z');
+              const finalGroupId = editingTransaction.groupId || targets[0]?.groupId || Math.random().toString(36).substr(2, 9);
               
-              const arr = relatedInstallments.map((t, i) => {
-                 const installmentDate = addMonths(baseDate, i);
-                 const installmentNum = (i + 1).toString().padStart(2, '0');
-                 const totalInstallments = data.installments.toString().padStart(2, '0');
-                 return {
-                     ...basePayload,
-                     id: t.id,
-                     value: installmentValue,
-                     date: toDbDate(format(installmentDate, 'yyyy-MM-dd'))!,
-                     description: `${finalEntityName} (${installmentNum}/${totalInstallments})`,
-                     status: t.status,
-                     groupId: t.groupId || editingTransaction.groupId,
-                     currentInstallment: i + 1,
-                     createdAt: t.createdAt
-                 };
-              });
+              // Se o número de parcelas foi reduzido, excluir as excedentes
+              if (targets.length > data.installments) {
+                const toDelete = targets.slice(data.installments).map((t: any) => t.id).filter(Boolean);
+                if (toDelete.length > 0) {
+                  await localDB.deleteMany('transactions', toDelete);
+                }
+              }
+
+              const arr = [];
+              for (let i = 0; i < data.installments; i++) {
+                const existingTarget = targets[i];
+                const installmentDate = addMonths(baseDate, i);
+                const installmentNum = (i + 1).toString().padStart(2, '0');
+                const totalInstallments = data.installments.toString().padStart(2, '0');
+
+                arr.push({
+                  ...basePayload,
+                  id: existingTarget?.id || (i === 0 ? editingTransaction.id : undefined),
+                  value: installmentValue,
+                  date: toDbDate(format(installmentDate, 'yyyy-MM-dd'))!,
+                  description: `${finalEntityName} (${installmentNum}/${totalInstallments})`,
+                  status: isCreditCard ? 'pago' : (i === 0 ? data.status : (existingTarget?.status || 'a_pagar')),
+                  groupId: finalGroupId,
+                  currentInstallment: i + 1,
+                  installments: data.installments,
+                  firstInstallmentDate: toDbDate(computedFirstInstallmentDate),
+                  purchaseDate: toDbDate(data.date),
+                });
+              }
               await localDB.saveMany('transactions', arr);
             } else if (editingTransaction.groupId && data.recurrent) {
               const year = data.recurrentYear || parseLocalDate(data.date).getFullYear();
@@ -748,41 +785,12 @@ function TransactionsContent() {
               if (toUpsert.length > 0) {
                 await localDB.saveMany('transactions', toUpsert);
               }
-            } else if ((relatedInstallments.length > 0 && data.installments !== editingTransaction.installments) || (relatedInstallments.length === 0 && hasInstallments)) {
-              if (relatedInstallments.length > 0) {
-                await localDB.deleteMany('transactions', relatedInstallments.map((t: any) => t.id));
-              } else {
-                await localDB.delete('transactions', editingTransaction.id);
-              }
-              const installmentValue = data.value / data.installments;
-              const rawDate = computedFirstInstallmentDate || ((data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate
-                ? data.firstInstallmentDate
-                : data.date);
-              const baseDate = new Date(String(rawDate).slice(0, 10) + 'T12:00:00Z');
-              const groupId = editingTransaction.groupId || Math.random().toString(36).substr(2, 9);
-              
-              const arr = [];
-              for (let i = 0; i < data.installments; i++) {
-                 const installmentDate = addMonths(baseDate, i);
-                 const installmentNum = (i + 1).toString().padStart(2, '0');
-                 const totalInstallments = data.installments.toString().padStart(2, '0');
-                 arr.push({
-                     ...basePayload,
-                     value: installmentValue,
-                     date: toDbDate(format(installmentDate, 'yyyy-MM-dd'))!,
-                     description: `${finalEntityName} (${installmentNum}/${totalInstallments})`,
-                     status: isCreditCard ? 'pago' : (i === 0 ? data.status : 'a_pagar'),
-                     groupId,
-                     currentInstallment: i + 1,
-                     createdAt: editingTransaction.createdAt
-                 });
-              }
-              await localDB.saveMany('transactions', arr);
             } else {
               await localDB.save('transactions', {
                 ...basePayload,
                 id: editingTransaction.id,
-                date: toDbDate(computedFirstInstallmentDate || data.date),
+                date: toDbDate(data.date),
+                purchaseDate: toDbDate(data.date),
                 renewalDate: toDbDate(data.renewalDate),
                 value: data.value,
               });
@@ -810,6 +818,8 @@ function TransactionsContent() {
                 currentInstallment: i + 1,
                 groupId,
                 status: isCreditCard ? 'pago' : (i === 0 ? data.status : 'a_pagar'),
+                firstInstallmentDate: toDbDate(computedFirstInstallmentDate),
+                purchaseDate: toDbDate(data.date),
               });
             }
             await localDB.saveMany('transactions', arr);
@@ -1076,7 +1086,7 @@ function TransactionsContent() {
     
     const headers = ['Data', 'Entidade', 'Descrição', 'Categoria', 'Status', 'Valor', 'Método'];
     const rows = filteredTransactions.map(t => [
-      format(parseLocalDate(t.date), 'dd/MM/yyyy'),
+      format(parseLocalDate(t.purchaseDate || t.date), 'dd/MM/yyyy'),
       t.entityName,
       t.description || '',
       t.category,
@@ -1485,7 +1495,7 @@ function TransactionsContent() {
                         )}
                       >
                         <td className="px-6 py-5">
-                          <p className="text-sm font-bold text-on-surface">{format(parseLocalDate(t.date), 'dd/MM/yyyy')}</p>
+                          <p className="text-sm font-bold text-on-surface">{format(parseLocalDate(t.purchaseDate || t.date), 'dd/MM/yyyy')}</p>
                           {t.recurrent && <span className="text-[9px] font-black text-primary uppercase tracking-tighter">Recorrente</span>}
                         </td>
                         <td className="px-6 py-5">

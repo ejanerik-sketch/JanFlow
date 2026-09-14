@@ -31,6 +31,68 @@ import { format, startOfMonth, endOfMonth, isWithinInterval, getMonth, getYear, 
 import { ptBR } from 'date-fns/locale';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
+/**
+ * Retorna o dia de fechamento efetivo para o mês especificado.
+ * Regra: Sempre que o fechamento for no último dia do mês (ex: 31),
+ * mas o mês não tiver dia 31, ele deve ser automaticamente ajustado para dia 30 (ou 28/29 em fev).
+ */
+function getClosingDayForMonth(year: number, monthIndex: number, cardClosingDay: number): number {
+  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+  if (cardClosingDay >= 31) {
+    return daysInMonth === 31 ? 31 : Math.min(30, daysInMonth);
+  }
+  return Math.min(daysInMonth, cardClosingDay);
+}
+
+function getCardBillingCycle(selectedMonth: Date, cardClosingDay: number) {
+  const selYear = selectedMonth.getFullYear();
+  const selMonth = selectedMonth.getMonth();
+
+  // Fatura referente ao mês M (selectedMonth):
+  // O ciclo fecha no mês anterior (M-1) no dia de fechamento ajustado
+  const prevMonth1 = selMonth - 1;
+  const year1 = prevMonth1 < 0 ? selYear - 1 : selYear;
+  const month1 = (prevMonth1 + 12) % 12;
+  const day1 = getClosingDayForMonth(year1, month1, cardClosingDay);
+  const cycleEnd = new Date(year1, month1, day1, 23, 59, 59, 999);
+
+  // E abre no milissegundo seguinte ao fechamento de 2 meses antes (M-2)
+  const prevMonth2 = selMonth - 2;
+  const year2 = prevMonth2 < 0 ? selYear - 1 : selYear;
+  const month2 = (prevMonth2 + 12) % 12;
+  const day2 = getClosingDayForMonth(year2, month2, cardClosingDay);
+  const prevClosing = new Date(year2, month2, day2, 23, 59, 59, 999);
+  const cycleStart = new Date(prevClosing.getTime() + 1);
+
+  return { cycleStart, cycleEnd };
+}
+
+function isTransactionInCardInvoice(t: any, selectedMonth: Date, cycleStart: Date, cycleEnd: Date): boolean {
+  // 1. Compra parcelada (> 1 parcela):
+  // Obedece o mês determinado a partir de firstInstallmentDate
+  if (t.installments && Number(t.installments) > 1) {
+    const instNum = Math.max(1, Number(t.currentInstallment) || 1);
+    if (t.firstInstallmentDate) {
+      const fDate = parseLocalDate(t.firstInstallmentDate);
+      const targetMonth = addMonths(fDate, instNum - 1);
+      return (
+        targetMonth.getFullYear() === selectedMonth.getFullYear() &&
+        targetMonth.getMonth() === selectedMonth.getMonth()
+      );
+    }
+    const tDate = parseLocalDate(t.date);
+    return (
+      tDate.getFullYear() === selectedMonth.getFullYear() &&
+      tDate.getMonth() === selectedMonth.getMonth()
+    );
+  }
+
+  // 2. Compra de 1 parcela / à vista no cartão:
+  // Segue o período de fechamento do cartão baseado na data de compra
+  const purchaseDate = parseLocalDate(t.purchaseDate || t.date);
+  return purchaseDate >= cycleStart && purchaseDate <= cycleEnd;
+}
+
 export default function CardsPage() {
   const router = useRouter();
   const { user, isAuthReady, context, isAdmin, isFinanceiro } = useAppContext();
@@ -59,9 +121,10 @@ export default function CardsPage() {
       const card = cards.find(c => c.id === selectedCardId);
       if (card) {
         const now = new Date();
-        const closingDay = card.closingDay || 10;
+        const rawClosing = parseInt(card.closingDay || (card as any).closing_day) || 10;
+        const effectiveClosingDay = getClosingDayForMonth(now.getFullYear(), now.getMonth(), rawClosing);
         // Se hoje for >= fechamento, a fatura em aberto é a do próximo mês
-        if (now.getDate() >= closingDay) {
+        if (now.getDate() >= effectiveClosingDay) {
           setSelectedMonth(addMonths(now, 1));
         } else {
           setSelectedMonth(now);
@@ -116,16 +179,20 @@ export default function CardsPage() {
       const selectedCard = cards.find(c => c.id === selectedCardId);
       if (!selectedCard) return;
 
-      // Busca um intervalo amplo cobrindo do mês M-2 até M+2 para capturar as compras do ciclo de vencimento
-      const startPeriod = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 2, 1);
-      const endPeriod = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 2, 0);
+      // Busca um intervalo amplo cobrindo do ano anterior até o próximo para capturar compras de ciclo e parcelamentos
+      const startPeriod = new Date(selectedMonth.getFullYear() - 1, 0, 1);
+      const endPeriod = new Date(selectedMonth.getFullYear() + 1, 11, 31);
 
       const from = format(startPeriod, 'yyyy-MM-dd');
       const to = format(endPeriod, 'yyyy-MM-dd');
 
       const allTransactions = await localDB.get('transactions', user.uid, context, { from, to });
       const cardTransactions = allTransactions
-        .filter((t: any) => t.cardId === selectedCardId || t.card_id === selectedCardId)
+        .filter((t: any) => 
+          t.cardId === selectedCardId || 
+          t.card_id === selectedCardId ||
+          (selectedCard && (t.cardId === selectedCard.name || t.card_id === selectedCard.name))
+        )
         .sort((a: any, b: any) => {
           const dateA = parseLocalDate(a.date).getTime();
           const dateB = parseLocalDate(b.date).getTime();
@@ -226,27 +293,30 @@ export default function CardsPage() {
   const categoryData = React.useMemo(() => {
     const data: { [key: string]: number } = {};
     const selectedCard = cards.find(c => c.id === selectedCardId);
-    const closingDay = selectedCard?.closingDay || 10;
+    if (!selectedCard) return [];
+    const closingDay = parseInt(selectedCard.closingDay || (selectedCard as any).closing_day) || 10;
+    const { cycleStart, cycleEnd } = getCardBillingCycle(selectedMonth, closingDay);
 
-    // Se o filtro selecionado é a Fatura que VENCE em Mês M (ex: AGOSTO),
-    // O período de compras é de closingDay do Mês M-2 (ex: 30 JUN) até (closingDay + 1 ou 31) do Mês M-1 (ex: 31 JUL)
-    const selYear = selectedMonth.getFullYear();
-    const selMonth = selectedMonth.getMonth();
+    const filtered = transactions.filter(t => isTransactionInCardInvoice(t, selectedMonth, cycleStart, cycleEnd));
 
-    const startCycle = new Date(selYear, selMonth - 2, closingDay);
-    const endCycle = new Date(selYear, selMonth - 1, closingDay + 1);
-
-    const filtered = transactions.filter(t => {
-      const tDate = parseLocalDate(t.date);
-      return isWithinInterval(tDate, { start: startCycle, end: endCycle });
+    filtered.forEach(t => {
+      const cat = (t.category || 'Outros').toUpperCase();
+      data[cat] = (data[cat] || 0) + Number(t.value || 0);
     });
 
-    filtered
-      .forEach(t => {
-        data[t.category] = (data[t.category] || 0) + t.value;
-      });
-    return Object.entries(data).map(([name, value]) => ({ name, value }));
-  }, [transactions, cards, selectedCardId, selectedMonth]);
+    const COLOR_PALETTE = ['#8b5cf6', '#f97316', '#ec4899', '#6366f1', '#84cc16', '#06b6d4', '#64748b', '#94a3b8', '#d946ef', '#10b981', '#3b82f6'];
+
+    return Object.entries(data)
+      .map(([name, value], index) => {
+        const catObj = categories.find(c => c.name.toUpperCase() === name);
+        return {
+          name,
+          value,
+          color: catObj?.color || COLOR_PALETTE[index % COLOR_PALETTE.length]
+        };
+      })
+      .sort((a, b) => b.value - a.value);
+  }, [transactions, cards, selectedCardId, selectedMonth, categories]);
 
   if (!isAuthReady || !user) return null;
 
@@ -260,19 +330,14 @@ export default function CardsPage() {
   };
 
   const selectedCard = cards.find(c => c.id === selectedCardId);
-  const closingDay = selectedCard?.closingDay || 10;
-
-  const selYear = selectedMonth.getFullYear();
-  const selMonth = selectedMonth.getMonth();
-
-  const cycleStart = new Date(selYear, selMonth - 2, closingDay);
-  const cycleEnd = new Date(selYear, selMonth - 1, closingDay + 1);
+  const closingDay = parseInt(selectedCard?.closingDay || (selectedCard as any)?.closing_day) || 10;
+  const { cycleStart, cycleEnd } = getCardBillingCycle(selectedMonth, closingDay);
 
   const filteredTransactions = transactions.filter(t => {
-    const tDate = parseLocalDate(t.date);
-    const matchesMonth = isWithinInterval(tDate, { start: cycleStart, end: cycleEnd });
-    if (!matchesMonth) return false;
+    const matchesInvoice = isTransactionInCardInvoice(t, selectedMonth, cycleStart, cycleEnd);
+    if (!matchesInvoice) return false;
 
+    const tDate = parseLocalDate(t.purchaseDate || t.date);
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch = !searchTerm ||
       ((t.entityName || '').toLowerCase()).includes(searchLower) ||
@@ -433,7 +498,7 @@ export default function CardsPage() {
                         <p className="text-xs text-on-surface-variant font-bold uppercase tracking-widest">{card.bank} • {card.brand}</p>
                         <div className="flex items-center gap-2">
                           <span className="text-[9px] font-black uppercase tracking-tighter px-2 py-0.5 rounded-full bg-surface-container-high text-on-surface-variant">
-                            Fecha dia {card.closingDay || 10}
+                            Fecha dia {card.closingDay == 31 ? '31 (ou 30)' : (card.closingDay || 10)}
                           </span>
                           <span className={cn(
                             "text-[9px] font-black uppercase tracking-tighter px-2 py-0.5 rounded-full",
@@ -513,43 +578,61 @@ export default function CardsPage() {
                 </div>
 
                 <div className="flex-1 p-8 overflow-y-auto space-y-12">
-                  {/* Category Chart */}
+                  {/* Category Chart - Distribuição por Categoria idêntica ao Dashboard/Print */}
                   {categoryData.length > 0 && (
-                    <div className="space-y-6">
-                      <div className="flex items-center gap-2">
-                        <PieChartIcon size={18} className="text-on-surface-variant" />
-                        <h4 className="text-sm font-black uppercase tracking-widest text-on-surface-variant">Gastos por Categoria</h4>
+                    <div className="bg-surface-container-lowest p-8 rounded-[40px] border border-outline-variant/20 shadow-sm">
+                      <div className="flex items-center justify-between mb-8">
+                        <div>
+                          <h3 className="text-xl font-black text-on-surface">Distribuição por Categoria</h3>
+                          <p className="text-sm text-on-surface-variant font-medium">Onde você está gastando mais</p>
+                        </div>
+                        <PieChartIcon size={24} className="text-on-surface-variant opacity-40" />
                       </div>
-                      <div className="h-[250px] w-full">
-                        <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                          <PieChart>
-                            <Pie
-                              data={categoryData}
-                              cx="50%"
-                              cy="50%"
-                              innerRadius={60}
-                              outerRadius={80}
-                              paddingAngle={5}
-                              dataKey="value"
-                            >
-                              {categoryData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                              ))}
-                            </Pie>
-                            <Tooltip
-                              contentStyle={{
-                                backgroundColor: '#1a1c1e',
-                                border: 'none',
-                                borderRadius: '12px',
-                                color: '#fff',
-                                fontWeight: 'bold'
-                              }}
-                              itemStyle={{ color: '#fff' }}
-                              formatter={(value: any) => formatCurrency(value as number)}
-                            />
-                            <Legend verticalAlign="bottom" wrapperStyle={{ paddingTop: '20px' }} />
-                          </PieChart>
-                        </ResponsiveContainer>
+                      <div className="h-[300px] w-full flex flex-col md:flex-row items-center">
+                        <div className="w-full md:w-1/2 h-[300px]">
+                          <ResponsiveContainer width="100%" height={300} minWidth={1} minHeight={1}>
+                            <PieChart>
+                              <Pie
+                                data={categoryData}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={60}
+                                outerRadius={100}
+                                paddingAngle={4}
+                                dataKey="value"
+                              >
+                                {categoryData.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={entry.color} />
+                                ))}
+                              </Pie>
+                              <Tooltip
+                                contentStyle={{
+                                  backgroundColor: '#1a1c1e',
+                                  border: 'none',
+                                  borderRadius: '12px',
+                                  color: '#fff',
+                                  fontWeight: 'bold'
+                                }}
+                                itemStyle={{ color: '#fff' }}
+                                formatter={(value: any) => formatCurrency(value as number)}
+                              />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                        <div className="w-full md:w-1/2 space-y-3 mt-6 md:mt-0 px-4 max-h-[300px] overflow-y-auto">
+                          {categoryData.map((entry, index) => (
+                            <div key={index} className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
+                                <span className="text-xs font-bold text-on-surface uppercase tracking-wider">{entry.name}</span>
+                              </div>
+                              <span className="text-xs font-black text-on-surface">{formatCurrency(entry.value)}</span>
+                            </div>
+                          ))}
+                          {categoryData.length === 0 && (
+                            <p className="text-xs text-on-surface-variant italic text-center py-4">Sem dados de gastos nesta fatura.</p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -794,9 +877,16 @@ export default function CardsPage() {
                       className="w-full px-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20"
                     >
                       {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
-                        <option key={day} value={day.toString()}>{day}</option>
+                        <option key={day} value={day.toString()}>
+                          Dia {day} {day === 31 ? '(Último dia / ajusta p/ 30)' : ''}
+                        </option>
                       ))}
                     </select>
+                    {newCard.closingDay === '31' && (
+                      <p className="text-[10px] text-primary font-bold ml-1">
+                        Em meses que não possuem dia 31, o fechamento é ajustado automaticamente para o dia 30 (ou último dia do mês).
+                      </p>
+                    )}
                   </div>
                 </div>
 
