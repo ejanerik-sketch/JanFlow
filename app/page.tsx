@@ -202,9 +202,17 @@ export default function Dashboard() {
           }
         } else {
           exp += portion;
-          if (t.status === 'pago' || t.status === 'recebido') expPaid += portion;
-          else if (t.status === 'a_pagar' || t.status === 'pendente') expPending += portion;
-          else if (t.status === 'atrasado') expOver += portion;
+          if (t.paymentMethod === 'cartao_credito') {
+            card += portion;
+            const cardObj = allCards.find((c: any) => c.id === t.cardId);
+            if (cardObj && cardMap[cardObj.id]) {
+              cardMap[cardObj.id].value += portion;
+            }
+          } else {
+            if (t.status === 'pago' || t.status === 'recebido') expPaid += portion;
+            else if (t.status === 'a_pagar' || t.status === 'pendente') expPending += portion;
+            else if (t.status === 'atrasado') expOver += portion;
+          }
           
           if ((t.description || '').toLowerCase().includes('cancelamento') || (t.description || '').toLowerCase().includes('cancelado')) {
             cancC++;
@@ -212,14 +220,6 @@ export default function Dashboard() {
 
           // Category distribution for expenses
           catMap[t.category] = (catMap[t.category] || 0) + portion;
-        }
-
-        if (t.paymentMethod === 'cartao_credito') {
-          card += portion;
-          const cardObj = allCards.find((c: any) => c.id === t.cardId);
-          if (cardObj && cardMap[cardObj.id]) {
-            cardMap[cardObj.id].value += portion;
-          }
         }
       });
 
@@ -465,6 +465,15 @@ export default function Dashboard() {
                     <span className="text-[10px] font-black text-amber-600 uppercase">A Pagar</span>
                     <span className="text-xs font-black text-on-surface">{formatCurrency(metrics.payable)}</span>
                   </div>
+                  {metrics.cardSpending > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black text-primary uppercase flex items-center gap-1">
+                        <CreditCard size={11} />
+                        Na Fatura
+                      </span>
+                      <span className="text-xs font-black text-primary">{formatCurrency(metrics.cardSpending)}</span>
+                    </div>
+                  )}
                 </>
               )}
               {metrics.overdue > 0 && (

@@ -584,9 +584,9 @@ function TransactionsContent() {
 
       const finalEntityName = data.entityName === 'outro' ? data.otherEntityName || 'Outro' : data.entityName;
 
-      // Determina a data da 1ª parcela de acordo com o mês/fatura selecionado
+      // Determina a data da 1ª parcela ou fatura do cartão de acordo com o mês/fatura selecionado
       let computedFirstInstallmentDate: string | null = null;
-      if (hasInstallments) {
+      if (isCreditCard || (data.paymentMethod === 'financiamento' && data.installments > 1)) {
         if (data.firstInstallmentMonth) {
           const [tYear, tMonth] = data.firstInstallmentMonth.split('-').map(Number);
           const purchaseDay = parseLocalDate(data.date).getDate() || 1;
@@ -595,6 +595,7 @@ function TransactionsContent() {
         } else if (data.firstInstallmentDate) {
           computedFirstInstallmentDate = data.firstInstallmentDate;
         } else if (isCreditCard) {
+          // Compras em cartão (1X ou parceladas) caem na fatura do mês seguinte por padrão
           computedFirstInstallmentDate = format(addMonths(parseLocalDate(data.date), 1), 'yyyy-MM-dd');
         } else {
           computedFirstInstallmentDate = data.date;
@@ -633,11 +634,17 @@ function TransactionsContent() {
 
       // 1. Atualização Otimista da UI
       const optimisticValue = (hasInstallments && data.installments > 1) ? (data.value / data.installments) : data.value;
+      const targetLaunchDate = (isCreditCard || hasInstallments) && computedFirstInstallmentDate
+        ? computedFirstInstallmentDate
+        : data.date;
+
       const optimisticTx = {
         ...basePayload,
         value: optimisticValue,
         id: editingTransaction ? editingTransaction.id : 'temp_' + Date.now(),
-        date: toDbDate((hasInstallments && computedFirstInstallmentDate) ? computedFirstInstallmentDate : data.date),
+        date: toDbDate(targetLaunchDate),
+        purchaseDate: toDbDate(data.date),
+        firstInstallmentDate: toDbDate(computedFirstInstallmentDate),
         renewalDate: toDbDate(data.renewalDate),
       };
       
@@ -786,11 +793,16 @@ function TransactionsContent() {
                 await localDB.saveMany('transactions', toUpsert);
               }
             } else {
+              const finalDate = (isCreditCard && computedFirstInstallmentDate)
+                ? computedFirstInstallmentDate
+                : data.date;
+
               await localDB.save('transactions', {
                 ...basePayload,
                 id: editingTransaction.id,
-                date: toDbDate(data.date),
+                date: toDbDate(finalDate),
                 purchaseDate: toDbDate(data.date),
+                firstInstallmentDate: toDbDate(computedFirstInstallmentDate),
                 renewalDate: toDbDate(data.renewalDate),
                 value: data.value,
               });
@@ -854,9 +866,15 @@ function TransactionsContent() {
               await localDB.saveMany('transactions', arr);
             }
           } else {
+            const finalDate = (isCreditCard && computedFirstInstallmentDate)
+              ? computedFirstInstallmentDate
+              : data.date;
+
             await localDB.save('transactions', {
               ...basePayload,
-              date: toDbDate(data.date),
+              date: toDbDate(finalDate),
+              purchaseDate: toDbDate(data.date),
+              firstInstallmentDate: toDbDate(computedFirstInstallmentDate),
               renewalDate: toDbDate(data.renewalDate),
             });
           }
@@ -1524,12 +1542,12 @@ function TransactionsContent() {
                                     por: {t.createdBy}
                                   </span>
                                 )}
-                                {t.currentInstallment && t.installments > 1 && (
+                                {Boolean(Number(t.currentInstallment) > 0 && Number(t.installments) > 1) && (
                                   <span className="text-[9px] font-black bg-surface-container-highest px-2 py-0.5 rounded-full text-on-surface-variant whitespace-nowrap">
                                     {t.currentInstallment}/{t.installments}
                                   </span>
                                 )}
-                                {(t.installments > 1 || t.paymentMethod === 'cartao_credito') && t.purchaseDate && (
+                                {Boolean((Number(t.installments) > 1 || t.paymentMethod === 'cartao_credito') && t.purchaseDate) && (
                                   <span className="text-[9px] font-medium bg-surface-container-high px-2 py-0.5 rounded-md text-on-surface-variant/90 whitespace-nowrap">
                                     Compra em {format(parseLocalDate(t.purchaseDate), 'dd/MM/yyyy')}
                                   </span>

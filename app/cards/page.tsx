@@ -738,7 +738,7 @@ export default function CardsPage() {
                                         por: {t.createdBy}
                                       </span>
                                     )}
-                                    {t.currentInstallment && t.installments > 1 && (
+                                    {Boolean(Number(t.currentInstallment) > 0 && Number(t.installments) > 1) && (
                                       <span className="text-[10px] font-black bg-surface-container-highest px-2 py-0.5 rounded-full text-on-surface-variant">
                                         Parcela {t.currentInstallment}/{t.installments}
                                       </span>
