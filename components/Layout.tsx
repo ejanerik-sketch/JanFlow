@@ -27,7 +27,8 @@ import {
   WifiOff,
   History,
   Moon,
-  Sun
+  Sun,
+  RefreshCw
 } from 'lucide-react';
 import { useAppContext } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
@@ -145,6 +146,23 @@ export default function Layout({ children }: LayoutProps) {
   const router = useRouter();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefreshData = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      const { localDB } = await import('@/lib/localDB');
+      localDB.clearCache();
+      window.dispatchEvent(new CustomEvent('janflow:refresh_data'));
+      setTimeout(() => {
+        setIsRefreshing(false);
+      }, 700);
+    } catch (e) {
+      console.error('Refresh error:', e);
+      setIsRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     // Check initial preference
@@ -259,13 +277,27 @@ export default function Layout({ children }: LayoutProps) {
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Sync Status Indicator */}
-            <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-full bg-surface-container-high border border-outline-variant/20" title="Status de conexão com o banco de dados">
-              <div className="relative flex items-center justify-center w-4 h-4">
-                <span className="absolute inline-flex h-full w-full rounded-full bg-success opacity-20 animate-ping"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
+            {/* Sync Status Indicator & Refresh Button */}
+            <div className="flex items-center gap-1.5">
+              <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-full bg-surface-container-high border border-outline-variant/20" title="Status de conexão com o banco de dados">
+                <div className="relative flex items-center justify-center w-4 h-4">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-success opacity-20 animate-ping"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
+                </div>
+                <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Sincronizado</span>
               </div>
-              <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Sincronizado</span>
+
+              <button
+                onClick={handleRefreshData}
+                disabled={isRefreshing}
+                className={cn(
+                  "p-2 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded-full transition-all active:scale-90",
+                  isRefreshing && "text-primary"
+                )}
+                title="Atualizar dados do banco de dados (sem recarregar a página)"
+              >
+                <RefreshCw size={17} className={cn(isRefreshing && "animate-spin text-primary")} />
+              </button>
             </div>
 
             <button
@@ -295,7 +327,15 @@ export default function Layout({ children }: LayoutProps) {
               </div>
               <div className={cn("w-10 h-10 rounded-full border-2 flex items-center justify-center overflow-hidden transition-colors duration-500", themeBorder)}>
                 {userData?.photoURL ? (
-                  <Image src={userData.photoURL} alt={userData.name || 'User'} width={40} height={40} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  <Image 
+                    src={userData.photoURL} 
+                    alt={userData.name || 'User'} 
+                    width={40} 
+                    height={40} 
+                    unoptimized={true}
+                    className="w-full h-full object-cover" 
+                    referrerPolicy="no-referrer" 
+                  />
                 ) : (
                   <User size={24} className={themeColor} />
                 )}

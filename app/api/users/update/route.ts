@@ -31,7 +31,11 @@ export async function POST(req: Request) {
     if (email !== undefined) updatePayload.email = email;
     if (role !== undefined) updatePayload.role = role;
     if (photoURL !== undefined) updatePayload.photoURL = photoURL;
-    if (password && typeof password === 'string' && password.length >= 6) {
+    
+    if (password !== undefined && password !== '') {
+      if (typeof password !== 'string' || password.length < 6) {
+        return NextResponse.json({ error: 'A senha deve conter ao menos 6 caracteres.' }, { status: 400 });
+      }
       updatePayload.password = password;
       updatePayload.passwordConfirm = password;
     }
@@ -41,7 +45,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, user: record });
     } catch (updateError: any) {
       console.error('PocketBase Update User Error:', updateError);
-      return NextResponse.json({ error: updateError.message || 'Erro ao atualizar usuário' }, { status: 400 });
+      let errorMsg = updateError.message || 'Erro ao atualizar usuário';
+      if (updateError.data?.data) {
+        const details = Object.entries(updateError.data.data)
+          .map(([k, v]: [string, any]) => `${k}: ${v.message || v.code}`)
+          .join(', ');
+        if (details) errorMsg = details;
+      }
+      return NextResponse.json({ error: errorMsg }, { status: 400 });
     }
   } catch (err: any) {
     if (err instanceof AuthError) {

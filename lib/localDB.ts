@@ -272,5 +272,21 @@ export const localDB = {
       console.error(`Error bulk deleting ${collection}:`, error);
       throw error;
     }
+  },
+
+  clearCache: () => {
+    if (typeof window === 'undefined') return;
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('janflow_cache_') || key.startsWith('janflow_users_'))) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+    } catch (e) {
+      console.warn('Falha ao limpar cache local:', e);
+    }
   }
 };

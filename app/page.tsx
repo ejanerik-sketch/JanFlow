@@ -78,6 +78,7 @@ export default function Dashboard() {
     category: 'todos'
   });
   const [isLoadingData, setIsLoadingData] = useState(true);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [valuesHidden, setValuesHidden] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('janflow_values_hidden') === 'true';
@@ -92,6 +93,14 @@ export default function Dashboard() {
       return next;
     });
   };
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      setRefreshTrigger(prev => prev + 1);
+    };
+    window.addEventListener('janflow:refresh_data', handleRefresh);
+    return () => window.removeEventListener('janflow:refresh_data', handleRefresh);
+  }, []);
 
   useEffect(() => {
     if (isAuthReady && !user) {
@@ -288,7 +297,7 @@ export default function Dashboard() {
     };
 
     loadData();
-  }, [user, context, selectedMonth, filters]);
+  }, [user, context, selectedMonth, filters, refreshTrigger]);
 
   if (!isAuthReady) {
     return (

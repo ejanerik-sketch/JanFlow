@@ -51,6 +51,7 @@ const transactionSchema = z.object({
   isInstallment: z.boolean().optional(),
   installments: z.number().min(1).default(1),
   firstInstallmentDate: z.string().optional(),
+  firstInstallmentMonth: z.string().optional(),
   otherEntityName: z.string().optional(),
   isRecurringCreditCard: z.boolean().optional(),
   recurrent: z.boolean(),
@@ -121,10 +122,26 @@ function TransactionsContent() {
       recurrent: false,
       installments: 1,
       date: format(new Date(), 'yyyy-MM-dd'),
+      firstInstallmentMonth: format(addMonths(new Date(), 1), 'yyyy-MM'),
       recurrentYear: new Date().getFullYear(),
       recurrentMonths: [new Date().getMonth()],
     }
   });
+
+  const [valueDisplay, setValueDisplay] = useState('');
+
+  const handleValueChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/\D/g, '');
+    if (!raw) {
+      setValueDisplay('');
+      setValue('value', 0, { shouldValidate: true });
+      return;
+    }
+    const num = parseFloat(raw) / 100;
+    const formatted = num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    setValueDisplay(formatted);
+    setValue('value', num, { shouldValidate: true });
+  };
 
   const transactionType = watch('type');
   const paymentMethod = watch('paymentMethod');
@@ -134,6 +151,7 @@ function TransactionsContent() {
   const watchedStatus = watch('status');
   const isInstallment = watch('isInstallment');
   const firstInstallmentDate = watch('firstInstallmentDate');
+  const watchedFirstInstallmentMonth = watch('firstInstallmentMonth');
   const isRecurringCreditCard = watch('isRecurringCreditCard');
   const entityName = watch('entityName');
   const watchedCardId = watch('cardId');
@@ -142,6 +160,25 @@ function TransactionsContent() {
   const watchedRecurrent = watch('recurrent');
   const watchedRecurrentYear = watch('recurrentYear');
   const watchedRecurrentMonths = watch('recurrentMonths') || [];
+
+  // Ouvinte de sincronização global disparada pelo botão do cabeçalho
+  useEffect(() => {
+    const handleGlobalRefresh = () => {
+      triggerRefresh();
+    };
+    window.addEventListener('janflow:refresh_data', handleGlobalRefresh);
+    return () => window.removeEventListener('janflow:refresh_data', handleGlobalRefresh);
+  }, []);
+
+  // Preenche automaticamente o mês da 1ª parcela como o mês seguinte à data da compra
+  useEffect(() => {
+    if (watchedDate && !editingTransaction && (!watchedFirstInstallmentMonth || watchedFirstInstallmentMonth === '')) {
+      const parsed = parseLocalDate(watchedDate);
+      if (!isNaN(parsed.getTime())) {
+        setValue('firstInstallmentMonth', format(addMonths(parsed, 1), 'yyyy-MM'));
+      }
+    }
+  }, [watchedDate, editingTransaction, watchedFirstInstallmentMonth, setValue]);
 
   // Auto-calculate shared split when people or value changes
   useEffect(() => {
@@ -293,6 +330,7 @@ function TransactionsContent() {
       setValue('entityName', t.entityName);
     }
     setValue('value', Number(t.value));
+    setValueDisplay(Number(t.value) ? Number(t.value).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
     setValue('category', t.category);
     setValue('paymentMethod', t.paymentMethod);
     if (t.cardId) setValue('cardId', t.cardId);
@@ -358,11 +396,20 @@ function TransactionsContent() {
       }));
     }
 
-    const baseDate = (paymentMethod === 'cartao_credito' || paymentMethod === 'financiamento') && firstInstallmentDate 
-      ? parseLocalDate(firstInstallmentDate) 
-      : parseLocalDate(watchedDate);
+    let startDate: Date;
+    if (watchedFirstInstallmentMonth) {
+      const [tYear, tMonth] = watchedFirstInstallmentMonth.split('-').map(Number);
+      const purchaseDay = parseLocalDate(watchedDate).getDate() || 1;
+      const lastDayOfTargetMonth = new Date(tYear, tMonth, 0).getDate();
+      startDate = new Date(tYear, tMonth - 1, Math.min(purchaseDay, lastDayOfTargetMonth), 12, 0, 0);
+    } else if (firstInstallmentDate) {
+      startDate = parseLocalDate(firstInstallmentDate);
+    } else if (paymentMethod === 'cartao_credito') {
+      startDate = addMonths(parseLocalDate(watchedDate), 1);
+    } else {
+      startDate = parseLocalDate(watchedDate);
+    }
     
-    const startDate = baseDate;
     const previews = [];
     const installmentValue = watchedValue / watchedInstallments;
 
@@ -377,7 +424,7 @@ function TransactionsContent() {
       });
     }
     return previews;
-  }, [watchedValue, watchedInstallments, watchedDate, watchedStatus, paymentMethod, isInstallment, editingTransaction, relatedInstallments, firstInstallmentDate]);
+  }, [watchedValue, watchedInstallments, watchedDate, watchedStatus, paymentMethod, isInstallment, editingTransaction, relatedInstallments, firstInstallmentDate, watchedFirstInstallmentMonth]);
 
   useEffect(() => {
     if (isAuthReady && !user) {
@@ -517,6 +564,7 @@ function TransactionsContent() {
     setEditingTransaction(null);
     setSharedSplitState({});
     setRecurrentMonthsTouched(false);
+    setValueDisplay('');
     reset();
     if (searchParams.toString()) {
       router.replace('/transactions');
@@ -533,6 +581,23 @@ function TransactionsContent() {
       const hasInstallments = (isCreditCard || isFinancingInstallment) && data.installments > 1;
 
       const finalEntityName = data.entityName === 'outro' ? data.otherEntityName || 'Outro' : data.entityName;
+
+      // Determina a data da 1ª parcela de acordo com o mês/fatura selecionado
+      let computedFirstInstallmentDate: string | null = null;
+      if (hasInstallments) {
+        if (data.firstInstallmentMonth) {
+          const [tYear, tMonth] = data.firstInstallmentMonth.split('-').map(Number);
+          const purchaseDay = parseLocalDate(data.date).getDate() || 1;
+          const lastDayOfTargetMonth = new Date(tYear, tMonth, 0).getDate();
+          computedFirstInstallmentDate = `${tYear}-${String(tMonth).padStart(2, '0')}-${String(Math.min(purchaseDay, lastDayOfTargetMonth)).padStart(2, '0')}`;
+        } else if (data.firstInstallmentDate) {
+          computedFirstInstallmentDate = data.firstInstallmentDate;
+        } else if (isCreditCard) {
+          computedFirstInstallmentDate = format(addMonths(parseLocalDate(data.date), 1), 'yyyy-MM-dd');
+        } else {
+          computedFirstInstallmentDate = data.date;
+        }
+      }
 
       // Extract only the fields that exist in the database schema
       const basePayload: any = {
@@ -552,7 +617,7 @@ function TransactionsContent() {
         recurrent: data.recurrent || false,
         uid: user.uid,
         context,
-        firstInstallmentDate: toDbDate(data.firstInstallmentDate),
+        firstInstallmentDate: toDbDate(computedFirstInstallmentDate),
         purchaseDate: toDbDate(data.date),
       };
 
@@ -570,7 +635,7 @@ function TransactionsContent() {
         ...basePayload,
         value: optimisticValue,
         id: editingTransaction ? editingTransaction.id : 'temp_' + Date.now(),
-        date: toDbDate(((data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate) ? data.firstInstallmentDate : data.date),
+        date: toDbDate((hasInstallments && computedFirstInstallmentDate) ? computedFirstInstallmentDate : data.date),
         renewalDate: toDbDate(data.renewalDate),
       };
       
@@ -591,9 +656,7 @@ function TransactionsContent() {
           if (editingTransaction) {
             if (relatedInstallments.length > 0 && data.installments === editingTransaction.installments) {
               const installmentValue = data.value / data.installments;
-              const rawDate = (data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate
-                ? data.firstInstallmentDate
-                : data.date;
+              const rawDate = computedFirstInstallmentDate || (data.firstInstallmentDate || data.date);
               const baseDate = new Date(String(rawDate).slice(0, 10) + 'T12:00:00Z');
               
               const arr = relatedInstallments.map((t, i) => {
@@ -692,9 +755,9 @@ function TransactionsContent() {
                 await localDB.delete('transactions', editingTransaction.id);
               }
               const installmentValue = data.value / data.installments;
-              const rawDate = (data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate
+              const rawDate = computedFirstInstallmentDate || ((data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate
                 ? data.firstInstallmentDate
-                : data.date;
+                : data.date);
               const baseDate = new Date(String(rawDate).slice(0, 10) + 'T12:00:00Z');
               const groupId = editingTransaction.groupId || Math.random().toString(36).substr(2, 9);
               
@@ -719,16 +782,14 @@ function TransactionsContent() {
               await localDB.save('transactions', {
                 ...basePayload,
                 id: editingTransaction.id,
-                date: toDbDate(((data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate) ? data.firstInstallmentDate : data.date),
+                date: toDbDate(computedFirstInstallmentDate || data.date),
                 renewalDate: toDbDate(data.renewalDate),
                 value: data.value,
               });
             }
           } else if (hasInstallments) {
             const installmentValue = data.value / data.installments;
-            const rawDate = (data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate
-              ? data.firstInstallmentDate
-              : data.date;
+            const rawDate = computedFirstInstallmentDate || data.date;
 
             const baseDate = new Date(String(rawDate).slice(0, 10) + 'T12:00:00Z');
             const startDate = baseDate;
@@ -763,9 +824,7 @@ function TransactionsContent() {
                 renewalDate: toDbDate(data.renewalDate),
               });
             } else {
-              const baseRecurrentDate = ((data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate) 
-                ? data.firstInstallmentDate 
-                : data.date;
+              const baseRecurrentDate = computedFirstInstallmentDate || data.date;
               const originalDay = parseLocalDate(baseRecurrentDate).getDate();
               const groupId = Math.random().toString(36).substr(2, 9);
               const arr = months.map((mIndex: number) => {
@@ -787,7 +846,7 @@ function TransactionsContent() {
           } else {
             await localDB.save('transactions', {
               ...basePayload,
-              date: toDbDate(((data.paymentMethod === 'cartao_credito' || data.paymentMethod === 'financiamento') && data.firstInstallmentDate) ? data.firstInstallmentDate : data.date),
+              date: toDbDate(data.date),
               renewalDate: toDbDate(data.renewalDate),
             });
           }
@@ -966,6 +1025,12 @@ function TransactionsContent() {
     }
 
     setRecurrentMonthsTouched(true);
+    const totalVal = Number(safeTx.installments || 1) > 1 ? Number(safeTx.value) * Number(safeTx.installments) : safeTx.value;
+    setValueDisplay(totalVal ? Number(totalVal).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
+    const fMonth = safeTx.firstInstallmentDate 
+      ? String(safeTx.firstInstallmentDate).slice(0, 7) 
+      : (safeTx.date ? String(safeTx.date).slice(0, 7) : '');
+
     reset({
       type: 'despesa',
       status: 'a_pagar',
@@ -976,10 +1041,11 @@ function TransactionsContent() {
       ...safeTx,
       sharedWith: safeTx.sharedWith,
       entityName: cleanEntityName,
-      value: Number(safeTx.installments || 1) > 1 ? Number(safeTx.value) * Number(safeTx.installments) : safeTx.value,
+      value: totalVal,
       date: safeTx.purchaseDate ? getDateString(safeTx.purchaseDate) : getDateString(safeTx.date),
       renewalDate: safeTx.renewalDate ? getDateString(safeTx.renewalDate) : undefined,
       firstInstallmentDate: safeTx.firstInstallmentDate ? getDateString(safeTx.firstInstallmentDate) : getDateString(safeTx.date),
+      firstInstallmentMonth: fMonth,
       isShared: !!safeTx.sharedWith,
       installments: Number(safeTx.installments || 1),
     } as any);
@@ -1089,6 +1155,7 @@ function TransactionsContent() {
     const item = pendingImports[index];
     setEditingTransaction(null);
     setRecurrentMonthsTouched(false);
+    setValueDisplay(item.value ? Number(item.value).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
     reset({
       ...item,
       date: item.date,
@@ -1213,6 +1280,7 @@ function TransactionsContent() {
               onClick={() => {
                 setEditingTransaction(null);
                 setRecurrentMonthsTouched(false);
+                setValueDisplay('');
                 reset();
                 setIsModalOpen(true);
               }}
@@ -1770,9 +1838,11 @@ function TransactionsContent() {
                     <div className="relative">
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold text-on-surface-variant">R$</span>
                       <input
-                        type="number"
-                        step="0.01"
-                        {...register('value', { valueAsNumber: true })}
+                        type="text"
+                        inputMode="numeric"
+                        value={valueDisplay}
+                        onChange={handleValueChange}
+                        placeholder="0,00"
                         className="w-full pl-10 pr-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20"
                       />
                     </div>
@@ -1852,7 +1922,7 @@ function TransactionsContent() {
                     </div>
                   )}
 
-                  {['cartao_credito', 'cartao_debito'].includes(paymentMethod) && (
+                  {paymentMethod === 'cartao_credito' && (
                     <div className="space-y-2">
                       <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Cartão</label>
                       <select
@@ -1882,21 +1952,21 @@ function TransactionsContent() {
                         {errors.installments && <p className="text-[10px] text-error font-bold ml-1">{errors.installments.message}</p>}
                       </div>
 
-                  {(paymentMethod === 'cartao_credito' || paymentMethod === 'financiamento') && (
-                    <div className="space-y-2 col-span-full md:col-span-1">
-                      <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">
-                        Data da Mês / Fatura (1ª Parcela)
-                      </label>
-                      <input
-                        type="date"
-                        {...register('firstInstallmentDate')}
-                        className="w-full px-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20"
-                      />
-                      <p className="text-[10px] text-on-surface-variant font-medium ml-1">
-                        Selecione a data/mês da fatura em que este lançamento deve entrar.
-                      </p>
-                    </div>
-                  )}
+                      {watchedInstallments > 1 && (
+                        <div className="space-y-2 col-span-full md:col-span-1">
+                          <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">
+                            Mês da 1ª Parcela (Fatura)
+                          </label>
+                          <input
+                            type="month"
+                            {...register('firstInstallmentMonth')}
+                            className="w-full px-4 py-3 bg-surface-container-high border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20"
+                          />
+                          <p className="text-[10px] text-on-surface-variant font-medium ml-1">
+                            Selecione o mês da fatura em que a 1ª parcela começará a ser cobrada.
+                          </p>
+                        </div>
+                      )}
 
                       {/* Installment Visualization */}
                       {installmentPreview.length > 0 && (

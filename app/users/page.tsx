@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppContext } from '@/context/AppContext';
-import { pb } from '@/lib/pocketbase';
+import { pb, POCKETBASE_URL } from '@/lib/pocketbase';
 import Layout from '@/components/Layout';
 import Image from 'next/image';
 import { 
@@ -14,14 +14,19 @@ import {
   Trash2, 
   Edit2, 
   X, 
-  Check,
-  Camera,
-  ShieldCheck,
-  ShieldAlert,
-  User as UserIcon,
-  Loader2,
-  Eye,
-  EyeOff
+  Check, 
+  Camera, 
+  ShieldCheck, 
+  ShieldAlert, 
+  User as UserIcon, 
+  Loader2, 
+  Eye, 
+  EyeOff,
+  KeyRound,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Crop
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -41,6 +46,15 @@ export default function UsersPage() {
   const [modalLoading, setModalLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Estados para recorte de imagem e senha
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  const [passwordModalUser, setPasswordModalUser] = useState<any | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [passwordModalLoading, setPasswordModalLoading] = useState(false);
+  const [passwordModalError, setPasswordModalError] = useState<string | null>(null);
+  const [passwordModalSuccess, setPasswordModalSuccess] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -75,10 +89,10 @@ export default function UsersPage() {
         });
         if (res.ok) {
           const { data } = await res.json();
-          // Converte para o formato esperado pelo frontend (photoURL mantido igual por garantia)
+          // Converte para o formato esperado pelo frontend com resolução de foto
           const camelData = data.map((u: any) => ({
             ...u,
-            photoURL: u.photoURL || u.photo_url || ''
+            photoURL: u.photoURL || u.photo_url || (u.avatar ? `${POCKETBASE_URL}/api/files/_pb_users_auth_/${u.id}/${u.avatar}` : '')
           }));
           setUsers(camelData);
           localStorage.setItem('janflow_cache_users_list', JSON.stringify(camelData));
@@ -91,11 +105,6 @@ export default function UsersPage() {
 
     loadUsers();
   }, [isAdmin, isFinanceiro]);
-
-  const saveUsersToLocal = (newUsers: any[]) => {
-    localStorage.setItem('janflow_users_list', JSON.stringify(newUsers));
-    setUsers(newUsers);
-  };
 
   const handleOpenModal = (userToEdit: any = null) => {
     if (userToEdit) {
@@ -128,114 +137,134 @@ export default function UsersPage() {
     setSuccess(null);
     setModalLoading(true);
 
-    const tempUsers = editingUser 
-      ? users.map(u => u.id === editingUser.id ? { ...u, name: formData.name, role: formData.role, photoURL: formData.photoURL } : u)
-      : [{ 
-          id: 'temp_' + Date.now(), 
-          email: formData.email, 
-          name: formData.name, 
-          role: formData.role, 
-          photoURL: formData.photoURL, 
-          created_at: new Date().toISOString() 
-        }, ...users];
-    
-    setUsers(tempUsers);
-    localStorage.setItem('janflow_cache_users_list', JSON.stringify(tempUsers));
-    
-    setIsModalOpen(false);
-    setModalLoading(false);
+    try {
+      const token = pb.authStore.token;
+      if (!token) throw new Error("Sessão expirada. Faça login novamente.");
 
-    (async () => {
-      try {
-        if (editingUser) {
-          const token = pb.authStore.token;
-          const updatePayload: any = {
-            id: editingUser.id,
-            name: formData.name,
-            role: formData.role,
-            photoURL: formData.photoURL
-          };
-          
-          if (formData.password) {
-            updatePayload.password = formData.password;
-          }
-
-          const response = await fetch('/api/users/update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify(updatePayload),
-          });
-          const resData = await response.json();
-          if (!response.ok) {
-            throw new Error(resData.error || 'Erro ao atualizar usuário');
-          }
-
-          if (resData.user) {
-            const updated = {
-              ...resData.user,
-              photoURL: resData.user.photoURL || resData.user.photo_url || ''
-            };
-            const finalUsers = users.map(u => u.id === editingUser.id ? { ...u, ...updated } : u);
-            setUsers(finalUsers);
-            localStorage.setItem('janflow_cache_users_list', JSON.stringify(finalUsers));
-          }
-        } else {
-          const token = pb.authStore.token;
-          if (token) {
-            const response = await fetch('/api/users/create', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-              body: JSON.stringify({
-                email: formData.email,
-                password: formData.password,
-                name: formData.name,
-                role: formData.role,
-                photoURL: formData.photoURL,
-              }),
-            });
-            const resData = await response.json();
-            if (response.ok && resData.user) {
-              const finalUsers = [resData.user, ...users];
-              setUsers(finalUsers);
-              localStorage.setItem('janflow_cache_users_list', JSON.stringify(finalUsers));
-            } else {
-              throw new Error(resData.error || 'Erro ao criar');
-            }
-          }
-        }
+      if (editingUser) {
+        const updatePayload: any = {
+          id: editingUser.id,
+          name: formData.name.trim(),
+          role: formData.role,
+          photoURL: formData.photoURL
+        };
         
-        if (editingUser && (editingUser.email === user?.email || editingUser.id === user?.uid)) {
-          refreshUserData();
+        if (formData.password && formData.password.trim()) {
+          if (formData.password.trim().length < 6) {
+            setError("A nova senha deve ter ao menos 6 caracteres.");
+            setModalLoading(false);
+            return;
+          }
+          updatePayload.password = formData.password.trim();
         }
-      } catch (err: any) {
-        console.error('Erro no background:', err);
-        // Refresh completo caso dê erro
-        const token = pb.authStore.token;
-        const res = await fetch('/api/db', {
+
+        const response = await fetch('/api/users/update', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ action: 'get', collection: 'users' })
+          body: JSON.stringify(updatePayload),
         });
-        if (res.ok) {
-          const { data } = await res.json();
-          setUsers(data.map((u: any) => ({ ...u, photoURL: u.photoURL || u.photo_url || '' })));
+        const resData = await response.json();
+        if (!response.ok) {
+          throw new Error(resData.error || 'Erro ao atualizar usuário');
         }
+
+        const updated = {
+          ...resData.user,
+          photoURL: resData.user?.photoURL || (resData.user?.avatar ? `${POCKETBASE_URL}/api/files/_pb_users_auth_/${resData.user.id}/${resData.user.avatar}` : formData.photoURL)
+        };
+        const finalUsers = users.map(u => u.id === editingUser.id ? { ...u, ...updated } : u);
+        setUsers(finalUsers);
+        localStorage.setItem('janflow_cache_users_list', JSON.stringify(finalUsers));
+
+        if (editingUser.email === user?.email || editingUser.id === user?.uid) {
+          await refreshUserData();
+        }
+        setIsModalOpen(false);
+      } else {
+        if (!formData.password || formData.password.trim().length < 6) {
+          setError("A senha inicial deve ter ao menos 6 caracteres.");
+          setModalLoading(false);
+          return;
+        }
+
+        const response = await fetch('/api/users/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            email: formData.email.trim(),
+            password: formData.password.trim(),
+            name: formData.name.trim(),
+            role: formData.role,
+            photoURL: formData.photoURL,
+          }),
+        });
+        const resData = await response.json();
+        if (!response.ok) {
+          throw new Error(resData.error || 'Erro ao criar usuário');
+        }
+
+        const newUser = {
+          ...resData.user,
+          photoURL: resData.user?.photoURL || (resData.user?.avatar ? `${POCKETBASE_URL}/api/files/_pb_users_auth_/${resData.user.id}/${resData.user.avatar}` : formData.photoURL)
+        };
+        const finalUsers = [newUser, ...users];
+        setUsers(finalUsers);
+        localStorage.setItem('janflow_cache_users_list', JSON.stringify(finalUsers));
+        setIsModalOpen(false);
       }
-    })();
+    } catch (err: any) {
+      console.error('Erro ao salvar usuário:', err);
+      setError(err.message || 'Falha ao salvar usuário. Tente novamente.');
+    } finally {
+      setModalLoading(false);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 800 * 1024) { // ~800KB limit to be safe with localStorage
-        alert("A imagem é muito grande. Escolha uma imagem menor que 800KB.");
-        return;
-      }
       const reader = new FileReader();
       reader.onloadend = () => {
-        setFormData({ ...formData, photoURL: reader.result as string });
+        setCropImageSrc(reader.result as string);
       };
       reader.readAsDataURL(file);
+    }
+    e.target.value = '';
+  };
+
+  const handleChangePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passwordModalUser) return;
+    setPasswordModalError(null);
+    setPasswordModalSuccess(null);
+
+    if (!newPassword || newPassword.trim().length < 6) {
+      setPasswordModalError('A senha deve ter no mínimo 6 caracteres.');
+      return;
+    }
+
+    setPasswordModalLoading(true);
+    try {
+      const token = pb.authStore.token;
+      const res = await fetch('/api/users/update-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ userId: passwordModalUser.id, password: newPassword.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao atualizar senha.');
+      }
+      setPasswordModalSuccess('Senha atualizada com sucesso!');
+      setTimeout(() => {
+        setPasswordModalUser(null);
+        setNewPassword('');
+        setPasswordModalSuccess(null);
+      }, 1000);
+    } catch (err: any) {
+      setPasswordModalError(err.message || 'Erro ao atualizar senha.');
+    } finally {
+      setPasswordModalLoading(false);
     }
   };
 
@@ -364,7 +393,7 @@ export default function UsersPage() {
                   <div className="flex items-center gap-4">
                     <div className="w-14 h-14 rounded-2xl bg-surface-container-high flex items-center justify-center overflow-hidden border-2 border-outline-variant/30">
                       {u.photoURL ? (
-                        <Image src={u.photoURL} alt={u.name} width={56} height={56} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        <Image src={u.photoURL} alt={u.name} width={56} height={56} unoptimized={true} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       ) : (
                         <UserIcon size={28} className="text-on-surface-variant" />
                       )}
@@ -379,6 +408,7 @@ export default function UsersPage() {
                       <button 
                         onClick={() => handleOpenModal(u)}
                         className="p-2 text-on-surface-variant hover:bg-surface-container-high rounded-xl transition-colors"
+                        title="Editar Usuário"
                       >
                         <Edit2 size={18} />
                       </button>
@@ -387,6 +417,7 @@ export default function UsersPage() {
                       <button 
                         onClick={() => confirmDelete(u)}
                         className="p-2 text-error hover:bg-error/10 rounded-xl transition-colors"
+                        title="Excluir Usuário"
                       >
                         <Trash2 size={18} />
                       </button>
@@ -407,12 +438,22 @@ export default function UsersPage() {
                     {u.role}
                   </div>
                   {isAdmin && (
-                    <button
-                      onClick={() => handleResetPassword(u.email)}
-                      className="text-[10px] font-bold text-primary hover:underline uppercase tracking-widest"
-                    >
-                      Redefinir Senha
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => {
+                          setPasswordModalUser(u);
+                          setNewPassword('');
+                          setShowNewPassword(false);
+                          setPasswordModalError(null);
+                          setPasswordModalSuccess(null);
+                        }}
+                        className="text-[10px] font-bold text-primary hover:underline uppercase tracking-widest flex items-center gap-1"
+                        title="Alterar senha deste usuário"
+                      >
+                        <KeyRound size={12} />
+                        Alterar Senha
+                      </button>
+                    </div>
                   )}
                 </div>
               </motion.div>
@@ -469,7 +510,7 @@ export default function UsersPage() {
                     <div className="flex gap-4 items-center">
                       <div className="w-20 h-20 rounded-2xl bg-surface-container-high flex items-center justify-center overflow-hidden border-2 border-outline-variant/30 shrink-0">
                         {formData.photoURL ? (
-                          <Image src={formData.photoURL} alt="Preview" width={80} height={80} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          <Image src={formData.photoURL} alt="Preview" width={80} height={80} unoptimized={true} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                         ) : (
                           <UserIcon size={32} className="text-on-surface-variant" />
                         )}
@@ -503,7 +544,7 @@ export default function UsersPage() {
                           )}
                         </div>
                         <p className="text-[10px] text-on-surface-variant font-medium text-center">
-                          Formatos aceitos: JPG, PNG. Máx 800KB.
+                          Formatos aceitos: JPG, PNG, WebP. Enquadramento e compressão automática inclusos.
                         </p>
                       </div>
                     </div>
@@ -651,6 +692,280 @@ export default function UsersPage() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Modal de Alteração de Senha Direta */}
+      <AnimatePresence>
+        {passwordModalUser && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setPasswordModalUser(null)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="relative w-full max-w-md bg-surface-container-lowest rounded-[32px] p-8 shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+                    <KeyRound size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-on-surface">Alterar Senha</h3>
+                    <p className="text-xs text-on-surface-variant font-medium">{passwordModalUser.name}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setPasswordModalUser(null)}
+                  className="p-2 hover:bg-surface-container-high rounded-full transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {passwordModalError && (
+                <div className="mb-4 p-3 bg-error/10 text-error text-xs rounded-xl font-bold border border-error/20">
+                  {passwordModalError}
+                </div>
+              )}
+
+              {passwordModalSuccess && (
+                <div className="mb-4 p-3 bg-success/10 text-success text-xs rounded-xl font-bold border border-success/20">
+                  {passwordModalSuccess}
+                </div>
+              )}
+
+              <form onSubmit={handleChangePasswordSubmit} className="space-y-5">
+                <div className="space-y-2">
+                  <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Nova Senha</label>
+                  <div className="relative">
+                    <input
+                      type={showNewPassword ? "text" : "password"}
+                      required
+                      autoFocus
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Mínimo 6 caracteres"
+                      className="w-full px-5 py-3.5 bg-surface-container-high border-none rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20 pr-12"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-primary transition-colors"
+                    >
+                      {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-on-surface-variant font-medium ml-1">
+                    Defina uma nova senha para o usuário <strong>{passwordModalUser.email}</strong>.
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setPasswordModalUser(null)}
+                    className="flex-1 py-3 rounded-xl font-bold text-on-surface-variant hover:bg-surface-container-high text-xs transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={passwordModalLoading}
+                    className="flex-1 bg-primary text-on-primary py-3 rounded-xl font-bold shadow-md shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] text-xs transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    {passwordModalLoading ? (
+                      <Loader2 className="animate-spin" size={16} />
+                    ) : (
+                      <Check size={16} />
+                    )}
+                    Salvar Nova Senha
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal de Recorte e Compressão de Foto */}
+      {cropImageSrc && (
+        <ImageCropperModal
+          imageSrc={cropImageSrc}
+          onConfirm={(croppedDataUrl) => {
+            setFormData(prev => ({ ...prev, photoURL: croppedDataUrl }));
+            setCropImageSrc(null);
+          }}
+          onCancel={() => setCropImageSrc(null)}
+        />
+      )}
     </Layout>
+  );
+}
+
+function ImageCropperModal({
+  imageSrc,
+  onConfirm,
+  onCancel
+}: {
+  imageSrc: string;
+  onConfirm: (dataUrl: string) => void;
+  onCancel: () => void;
+}) {
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStart = React.useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+  const imageRef = React.useRef<HTMLImageElement>(null);
+  const containerSize = 260;
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    dragStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return;
+    const dx = e.clientX - dragStart.current.x;
+    const dy = e.clientY - dragStart.current.y;
+    setPan({ x: dragStart.current.panX + dx, y: dragStart.current.panY + dy });
+  };
+
+  const handleMouseUp = () => setIsDragging(false);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      setIsDragging(true);
+      dragStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, panX: pan.x, panY: pan.y };
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDragging || e.touches.length !== 1) return;
+    const dx = e.touches[0].clientX - dragStart.current.x;
+    const dy = e.touches[0].clientY - dragStart.current.y;
+    setPan({ x: dragStart.current.panX + dx, y: dragStart.current.panY + dy });
+  };
+
+  const handleTouchEnd = () => setIsDragging(false);
+
+  const handleCrop = () => {
+    const img = imageRef.current;
+    if (!img) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 300;
+    canvas.height = 300;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, 300, 300);
+
+    const aspect = (img.naturalWidth || containerSize) / (img.naturalHeight || containerSize);
+    let baseW = containerSize;
+    let baseH = containerSize;
+    if (aspect > 1) {
+      baseW = containerSize * aspect;
+    } else {
+      baseH = containerSize / aspect;
+    }
+
+    const scale = 300 / containerSize;
+    const drawW = baseW * zoom * scale;
+    const drawH = baseH * zoom * scale;
+    const drawX = (300 - drawW) / 2 + pan.x * scale;
+    const drawY = (300 - drawH) / 2 + pan.y * scale;
+
+    ctx.drawImage(img, drawX, drawY, drawW, drawH);
+
+    // Salva com compressão automática JPEG de alta qualidade (~25KB)
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    onConfirm(dataUrl);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative w-full max-w-sm bg-surface-container-lowest rounded-[32px] p-6 shadow-2xl space-y-5 text-center">
+        <div>
+          <h3 className="text-lg font-black text-on-surface">Ajustar e Recortar Foto</h3>
+          <p className="text-xs text-on-surface-variant font-medium">Arraste a foto e ajuste o zoom para enquadrar</p>
+        </div>
+
+        <div
+          className="relative w-[260px] h-[260px] mx-auto overflow-hidden rounded-full border-4 border-primary/40 shadow-inner bg-black cursor-grab active:cursor-grabbing select-none"
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            ref={imageRef}
+            src={imageSrc}
+            alt="Crop"
+            draggable={false}
+            className="absolute max-w-none pointer-events-none"
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transformOrigin: 'center center'
+            }}
+          />
+        </div>
+
+        {/* Zoom controls */}
+        <div className="flex items-center gap-3 px-2">
+          <ZoomOut size={16} className="text-on-surface-variant" />
+          <input
+            type="range"
+            min="1"
+            max="3"
+            step="0.05"
+            value={zoom}
+            onChange={(e) => setZoom(parseFloat(e.target.value))}
+            className="flex-1 accent-primary cursor-pointer"
+          />
+          <ZoomIn size={16} className="text-on-surface-variant" />
+          <button
+            type="button"
+            onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}
+            className="p-1.5 hover:bg-surface-container-high rounded-lg text-on-surface-variant"
+            title="Redefinir enquadramento"
+          >
+            <RotateCcw size={14} />
+          </button>
+        </div>
+
+        <div className="flex gap-3 pt-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 py-3 rounded-xl font-bold text-on-surface-variant hover:bg-surface-container-high text-xs transition-all"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={handleCrop}
+            className="flex-1 py-3 rounded-xl font-bold bg-primary text-on-primary text-xs shadow-md shadow-primary/20 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+          >
+            <Check size={16} />
+            Aplicar Foto
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

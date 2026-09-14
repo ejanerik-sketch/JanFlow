@@ -38,7 +38,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, user: record });
     } catch (error: any) {
       console.error('PocketBase Admin Error (update-password):', error);
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      let errorMsg = error.message || 'Erro ao atualizar senha';
+      if (error.data?.data) {
+        const details = Object.entries(error.data.data)
+          .map(([k, v]: [string, any]) => `${k}: ${v.message || v.code}`)
+          .join(', ');
+        if (details) errorMsg = details;
+      }
+      return NextResponse.json({ error: errorMsg }, { status: 400 });
     }
 
   } catch (err: any) {

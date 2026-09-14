@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { pb } from '@/lib/pocketbase';
+import { pb, POCKETBASE_URL } from '@/lib/pocketbase';
 
 type ContextType = 'empresa' | 'pessoal';
 
@@ -29,12 +29,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (pb.authStore.isValid && pb.authStore.model) {
       const model = pb.authStore.model;
       setUser({ uid: model.id, email: model.email });
+      let photo = model.photoURL || '';
+      if (!photo && model.avatar) {
+        photo = `${POCKETBASE_URL}/api/files/_pb_users_auth_/${model.id}/${model.avatar}`;
+      }
       setUserData({
         uid: model.id,
         name: model.name || 'Usuário',
         email: model.email,
         role: model.role || 'analista',
-        photoURL: model.photoURL || ''
+        photoURL: photo
       });
     } else {
       setUser(null);

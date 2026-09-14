@@ -137,6 +137,14 @@ export default function CardsPage() {
     loadTransactions();
   }, [user, selectedCardId, context, selectedMonth, refreshTrigger]);
 
+  useEffect(() => {
+    const handleRefresh = () => {
+      setRefreshTrigger(prev => prev + 1);
+    };
+    window.addEventListener('janflow:refresh_data', handleRefresh);
+    return () => window.removeEventListener('janflow:refresh_data', handleRefresh);
+  }, []);
+
   const handleAddCard = async () => {
     if (!newCard.name || !user) return;
     setLoading(true);
