@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 import './globals.css'; // Global styles
 import { AppProvider } from '@/context/AppContext';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import NeilAiChat from '@/components/NeilAiChat';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -46,6 +47,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         <ErrorBoundary>
           <AppProvider>
             {children}
+            <NeilAiChat />
           </AppProvider>
         </ErrorBoundary>
       </body>

@@ -602,6 +602,16 @@ function TransactionsContent() {
         }
       }
 
+      let computedSharedSplit = '';
+      if (data.isShared && Object.keys(sharedSplitState).length > 0) {
+        const splitToSave: Record<string, number> = {};
+        const divisor = (hasInstallments && data.installments > 1) ? data.installments : 1;
+        for (const [person, val] of Object.entries(sharedSplitState)) {
+          splitToSave[person] = Number((val / divisor).toFixed(2));
+        }
+        computedSharedSplit = JSON.stringify(splitToSave);
+      }
+
       // Extract only the fields that exist in the database schema
       const basePayload: any = {
         type: data.type,
@@ -616,7 +626,7 @@ function TransactionsContent() {
         installments: data.installments || 1,
         isShared: data.isShared || false,
         sharedWith: data.isShared ? data.sharedWith : '',
-        sharedSplit: data.isShared && Object.keys(sharedSplitState).length > 0 ? JSON.stringify(sharedSplitState) : '',
+        sharedSplit: computedSharedSplit,
         recurrent: data.recurrent || false,
         uid: user.uid,
         context,

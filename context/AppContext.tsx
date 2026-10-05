@@ -22,7 +22,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any | null>(null);
   const [userData, setUserData] = useState<any | null>(null);
-  const [context, setContext] = useState<ContextType>('empresa');
+  const [context, setContext] = useState<ContextType>('pessoal');
   const [isAuthReady, setIsAuthReady] = useState(false);
 
   const syncStateWithPocketBase = () => {

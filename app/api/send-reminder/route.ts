@@ -1,13 +1,20 @@
 import { NextResponse } from 'next/server';
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 import { getAuthedUser, AuthError } from '@/lib/apiAuth';
 import { rateLimit, clientKey } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Initialize Resend with the API key from environment variables
-const resend = new Resend(process.env.RESEND_API_KEY);
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT),
+  secure: true,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
 
 export async function POST(request: Request) {
   try {
@@ -18,20 +25,17 @@ export async function POST(request: Request) {
       );
     }
 
-    // ALTO: exige sessão autenticada para impedir relay de e-mail aberto.
     const authedUser = await getAuthedUser(request);
 
     const { transactionName, value, dueDate, type, customSubject, customHtml } = await request.json();
 
-    if (!process.env.RESEND_API_KEY) {
+    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
       return NextResponse.json(
-        { error: 'RESEND_API_KEY não está configurada nas variáveis de ambiente.' },
+        { error: 'Credenciais de SMTP não estão configuradas nas variáveis de ambiente.' },
         { status: 500 }
       );
     }
 
-    // O destinatário é SEMPRE o e-mail do usuário autenticado — ignora qualquer
-    // `to` vindo do corpo, eliminando o vetor de relay/phishing para terceiros.
     const to = authedUser.email;
     if (!to) {
       return NextResponse.json(
@@ -56,7 +60,6 @@ export async function POST(request: Request) {
       currency: 'BRL'
     }).format(value);
 
-    // Default template
     let subject = `[JanFlow] Lembrete: ${transactionName}`;
     let html = `
       <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
@@ -76,7 +79,6 @@ export async function POST(request: Request) {
       </div>
     `;
 
-    // Apply custom template if provided
     if (customSubject) {
       subject = customSubject
         .replace('{{transactionName}}', transactionName)
@@ -95,19 +97,14 @@ export async function POST(request: Request) {
         .replace(/{{titleText}}/g, titleText);
     }
 
-    const { data, error } = await resend.emails.send({
-      from: 'JanFlow Notificações <onboarding@resend.dev>', // Resend default testing domain
+    const info = await transporter.sendMail({
+      from: `"JanFlow Notificações" <${process.env.SMTP_USER}>`,
       to: [to],
       subject,
       html,
     });
 
-    if (error) {
-      console.error('Resend error:', error);
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    return NextResponse.json({ success: true, data });
+    return NextResponse.json({ success: true, data: info.messageId });
   } catch (error: any) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });

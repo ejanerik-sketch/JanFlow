@@ -70,7 +70,7 @@ const SidebarContent = ({
     { name: 'Categorias', icon: Tags, href: '/categories', adminOnly: true },
     { name: 'Clientes', icon: Building2, href: '/clients', adminOrFinanceiro: true, businessOnly: true },
     { name: 'Histórico', icon: History, href: '/logs', adminOrFinanceiro: true },
-    { name: 'Usuários', icon: User, href: '/users', adminOrFinanceiro: true },
+    { name: 'Configurações', icon: Settings, href: '/settings' },
   ];
 
   return (

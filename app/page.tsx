@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAppContext } from '@/context/AppContext';
 import Layout from '@/components/Layout';
+import { CategoryTransactionsModal } from '@/components/CategoryTransactionsModal';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -70,6 +71,7 @@ export default function Dashboard() {
     cardBreakdown: [] as { id: string, name: string, bank?: string, lastDigits?: string, value: number }[],
     categoryDistribution: [] as { name: string, value: number, color: string }[]
   });
+  const [selectedCategoryModal, setSelectedCategoryModal] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [filters, setFilters] = useState({
@@ -522,12 +524,12 @@ export default function Dashboard() {
                 </div>
                 <div className="w-full md:w-1/2 space-y-3 mt-6 md:mt-0 px-4 max-h-[300px] overflow-y-auto">
                   {metrics.categoryDistribution.map((entry: any, index: number) => (
-                    <div key={index} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.color }}></div>
-                        <span className="text-xs font-bold text-on-surface">{entry.name}</span>
+                    <div key={index} className="flex items-center justify-between gap-2 p-2 rounded-lg hover:bg-surface-container-high transition-colors cursor-pointer" onClick={() => setSelectedCategoryModal(entry.name)}>
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: entry.color }}></div>
+                        <span className="text-xs font-bold text-on-surface truncate">{entry.name}</span>
                       </div>
-                      <span className="text-xs font-black text-on-surface-variant">{formatCurrency(entry.rawValue)}</span>
+                      <span className="text-xs font-black text-error shrink-0">{formatCurrency(entry.rawValue)}</span>
                     </div>
                   ))}
                   {metrics.categoryDistribution.length === 0 && (
@@ -727,6 +729,13 @@ export default function Dashboard() {
           </div>
         )}
       </AnimatePresence>
+      {/* Modal de Categoria */}
+      <CategoryTransactionsModal
+        isOpen={!!selectedCategoryModal}
+        onClose={() => setSelectedCategoryModal(null)}
+        categoryName={selectedCategoryModal || ''}
+        transactions={transactions}
+      />
     </Layout>
   );
 }

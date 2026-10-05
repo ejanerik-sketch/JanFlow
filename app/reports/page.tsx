@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAppContext } from '@/context/AppContext';
 import Layout from '@/components/Layout';
+import { CategoryTransactionsModal } from '@/components/CategoryTransactionsModal';
 import { 
   BarChart3, 
   FileText, 
@@ -64,6 +65,7 @@ export default function ReportsPage() {
   const { user, isAuthReady, context } = useAppContext();
   const [transactions, setTransactions] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
+  const [selectedCategoryModal, setSelectedCategoryModal] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [viewMode, setViewMode] = useState<'mensal' | 'anual'>('mensal');
   const [comparisonData, setComparisonData] = useState<any[]>([]);
@@ -1091,12 +1093,12 @@ export default function ReportsPage() {
                 </div>
                 <div className="w-full md:w-1/2 space-y-3 mt-6 md:mt-0 px-4 max-h-[300px] overflow-y-auto">
                   {categoryData.sort((a: any, b: any) => b.value - a.value).map((entry: any, index: number) => (
-                    <div key={index} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.color }}></div>
-                        <span className="text-xs font-bold text-on-surface">{entry.name}</span>
+                    <div key={index} className="flex items-center justify-between gap-2 p-2 rounded-lg hover:bg-surface-container-high transition-colors cursor-pointer" onClick={() => setSelectedCategoryModal(entry.name)}>
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: entry.color }}></div>
+                        <span className="text-xs font-bold text-on-surface truncate">{entry.name}</span>
                       </div>
-                      <span className="text-xs font-black text-on-surface-variant">{formatCurrency(entry.value)}</span>
+                      <span className="text-xs font-black text-error shrink-0">{formatCurrency(entry.value)}</span>
                     </div>
                   ))}
                   {categoryData.length === 0 && (
@@ -1279,97 +1281,6 @@ export default function ReportsPage() {
           </div>
         )}
 
-        {/* Compras Parceladas */}
-        <div className="bg-surface-container-lowest p-8 rounded-[32px] border border-outline-variant/20 shadow-sm">
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h3 className="text-xl font-black text-on-surface">Compras Parceladas</h3>
-              <p className="text-sm text-on-surface-variant font-medium">Controle de parcelas futuras (Cartão e Financiamento) — Clique na linha para abrir o lançamento</p>
-            </div>
-            <Calendar size={24} className="text-on-surface-variant opacity-40" />
-          </div>
-          
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-outline-variant/10">
-                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Descrição</th>
-                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Método</th>
-                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Data Compra</th>
-                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Valor Total</th>
-                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Parcelas</th>
-                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Valor Parcela</th>
-                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Vencimento</th>
-                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant text-right">Ação</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-outline-variant/10">
-                {transactions
-                  .filter((t: any) => (t.paymentMethod === 'cartao_credito' || t.paymentMethod === 'financiamento') && t.installments > 1)
-                  .map((t, idx) => {
-                    const originalPurchaseDate = getPurchaseDateDisplay(t);
-                    return (
-                      <tr 
-                        key={t.id || idx} 
-                        onClick={() => router.push(`/transactions?editId=${t.id}&month=${t.date}`)}
-                        className="group hover:bg-primary/5 cursor-pointer transition-colors"
-                        title="Clique para abrir e ver este lançamento"
-                      >
-                        <td className="py-4">
-                          <div className="text-sm font-bold text-on-surface group-hover:text-primary transition-colors flex items-center gap-1.5">
-                            <span>{t.entityName || t.description}</span>
-                          </div>
-                          {t.entityName && t.description && t.description !== t.entityName && (
-                            <div className="text-xs text-on-surface-variant font-medium mt-0.5 line-clamp-1">
-                              {t.description.replace(/\s*\(\d+\/\d+\)\s*$/, '')}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-4 text-xs font-bold text-on-surface-variant uppercase">
-                          {t.paymentMethod === 'cartao_credito' ? 'Cartão Crédito' : t.paymentMethod.replace('_', ' ')}
-                        </td>
-                        <td className="py-4 text-xs font-semibold text-on-surface-variant">
-                          {originalPurchaseDate}
-                        </td>
-                        <td className="py-4 text-sm font-black text-on-surface">
-                          {formatCurrency(t.originalValue ? t.originalValue * t.installments : t.value * t.installments)}
-                        </td>
-                        <td className="py-4 text-sm font-bold text-on-surface-variant">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black bg-surface-container-high text-on-surface">
-                            {t.currentInstallment ? `${t.currentInstallment}/${t.installments}` : `${t.installments}x`}
-                          </span>
-                        </td>
-                        <td className="py-4 text-sm font-black text-primary">
-                          {formatCurrency(t.value)}
-                        </td>
-                        <td className="py-4 text-sm font-bold text-on-surface-variant">
-                          {format(parseLocalDate(t.date), 'dd/MM/yyyy')}
-                        </td>
-                        <td className="py-4 text-right pr-2">
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              router.push(`/transactions?editId=${t.id}&month=${t.date}`);
-                            }}
-                            className="p-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors inline-flex items-center gap-1 text-xs font-bold"
-                            title="Abrir nos Lançamentos"
-                          >
-                            <ExternalLink size={15} />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                {transactions.filter((t: any) => (t.paymentMethod === 'cartao_credito' || t.paymentMethod === 'financiamento') && t.installments > 1).length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="py-8 text-center text-sm text-on-surface-variant italic">Nenhuma compra parcelada encontrada para este período.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
         {/* Compras Compartilhadas */}
         {Object.keys(sharedByPerson).length > 0 && (
           <div className="bg-surface-container-lowest p-4 md:p-8 rounded-[32px] border border-outline-variant/20 shadow-sm">
@@ -1471,6 +1382,97 @@ export default function ReportsPage() {
             </div>
           </div>
         )}
+
+        {/* Compras Parceladas */}
+        <div className="bg-surface-container-lowest p-8 rounded-[32px] border border-outline-variant/20 shadow-sm">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h3 className="text-xl font-black text-on-surface">Compras Parceladas</h3>
+              <p className="text-sm text-on-surface-variant font-medium">Controle de parcelas futuras (Cartão e Financiamento) — Clique na linha para abrir o lançamento</p>
+            </div>
+            <Calendar size={24} className="text-on-surface-variant opacity-40" />
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-outline-variant/10">
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Descrição</th>
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Método</th>
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Data Compra</th>
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Valor Total</th>
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Parcelas</th>
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Valor Parcela</th>
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Vencimento</th>
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant text-right">Ação</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-outline-variant/10">
+                {transactions
+                  .filter((t: any) => (t.paymentMethod === 'cartao_credito' || t.paymentMethod === 'financiamento') && t.installments > 1)
+                  .map((t, idx) => {
+                    const originalPurchaseDate = getPurchaseDateDisplay(t);
+                    return (
+                      <tr 
+                        key={t.id || idx} 
+                        onClick={() => router.push(`/transactions?editId=${t.id}&month=${t.date}`)}
+                        className="group hover:bg-primary/5 cursor-pointer transition-colors"
+                        title="Clique para abrir e ver este lançamento"
+                      >
+                        <td className="py-4">
+                          <div className="text-sm font-bold text-on-surface group-hover:text-primary transition-colors flex items-center gap-1.5">
+                            <span>{t.entityName || t.description}</span>
+                          </div>
+                          {t.entityName && t.description && t.description !== t.entityName && (
+                            <div className="text-xs text-on-surface-variant font-medium mt-0.5 line-clamp-1">
+                              {t.description.replace(/\s*\(\d+\/\d+\)\s*$/, '')}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-4 text-xs font-bold text-on-surface-variant uppercase">
+                          {t.paymentMethod === 'cartao_credito' ? 'Cartão Crédito' : t.paymentMethod.replace('_', ' ')}
+                        </td>
+                        <td className="py-4 text-xs font-semibold text-on-surface-variant">
+                          {originalPurchaseDate}
+                        </td>
+                        <td className="py-4 text-sm font-black text-on-surface">
+                          {formatCurrency(t.originalValue ? t.originalValue * t.installments : t.value * t.installments)}
+                        </td>
+                        <td className="py-4 text-sm font-bold text-on-surface-variant">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black bg-surface-container-high text-on-surface">
+                            {t.currentInstallment ? `${t.currentInstallment}/${t.installments}` : `${t.installments}x`}
+                          </span>
+                        </td>
+                        <td className="py-4 text-sm font-black text-primary">
+                          {formatCurrency(t.value)}
+                        </td>
+                        <td className="py-4 text-sm font-bold text-on-surface-variant">
+                          {format(parseLocalDate(t.date), 'dd/MM/yyyy')}
+                        </td>
+                        <td className="py-4 text-right pr-2">
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              router.push(`/transactions?editId=${t.id}&month=${t.date}`);
+                            }}
+                            className="p-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors inline-flex items-center gap-1 text-xs font-bold"
+                            title="Abrir nos Lançamentos"
+                          >
+                            <ExternalLink size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                {transactions.filter((t: any) => (t.paymentMethod === 'cartao_credito' || t.paymentMethod === 'financiamento') && t.installments > 1).length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="py-8 text-center text-sm text-on-surface-variant italic">Nenhuma compra parcelada encontrada para este período.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       {/* Modal de Seleção de Importação */}
@@ -1546,6 +1548,13 @@ export default function ReportsPage() {
           </div>
         </div>
       )}
+      {/* Modal de Categoria */}
+      <CategoryTransactionsModal
+        isOpen={!!selectedCategoryModal}
+        onClose={() => setSelectedCategoryModal(null)}
+        categoryName={selectedCategoryModal || ''}
+        transactions={transactions}
+      />
     </Layout>
   );
 }
