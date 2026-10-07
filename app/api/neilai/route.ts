@@ -36,8 +36,7 @@ export async function POST(req: Request) {
 
     // Busca o bloco de notas (memória da NeilAi) para este usuário e contexto
     const notesResult = await pba.collection('neilai_notes').getList(1, 10, {
-      filter: `context = '${context}' && user_name = '${userName}'`,
-      sort: '-created'
+      filter: `context = '${context}' && user_name = '${userName}'`
     });
     const activeNotes = notesResult.items.map(n => `- ${n.note}`).join('\n');
 
