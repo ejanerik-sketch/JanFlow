@@ -10,13 +10,13 @@ export const maxDuration = 30;
 const POCKETBASE_URL = process.env.NEXT_PUBLIC_POCKETBASE_URL || 'https://pb.janagencia.com.br';
 const pb = new PocketBase(POCKETBASE_URL);
 
-// Instancia o provedor Google com a chave salva no env.local
-const google = createGoogleGenerativeAI({
-  apiKey: process.env.GEMINI_API_KEY,
-});
-
 export async function POST(req: Request) {
   try {
+    // Instancia o provedor Google aqui dentro para garantir a leitura no Runtime
+    const google = createGoogleGenerativeAI({
+      apiKey: process.env.GEMINI_API_KEY,
+    });
+
     const { messages, data } = await req.json();
     const context = data?.context || 'pessoal'; // Recebe o contexto (empresa ou pessoal)
     const userName = data?.userName || 'Usuário'; // Nome do usuário logado
