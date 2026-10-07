@@ -94,7 +94,7 @@ export default function NeilAiChat() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [...messages, userMessage],
-          data: { context }
+          data: { context, userName: user?.name || 'Usuário' }
         })
       });
 

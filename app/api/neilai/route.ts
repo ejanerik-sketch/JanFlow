@@ -19,6 +19,7 @@ export async function POST(req: Request) {
   try {
     const { messages, data } = await req.json();
     const context = data?.context || 'pessoal'; // Recebe o contexto (empresa ou pessoal)
+    const userName = data?.userName || 'Usuário'; // Nome do usuário logado
 
     // --- Busta os dados no DB antes de chamar a IA (Context Injection) ---
     const pbUrl = process.env.NEXT_PUBLIC_POCKETBASE_URL || 'https://pb.janagencia.com.br';
@@ -33,23 +34,15 @@ export async function POST(req: Request) {
       await pba.admins.authWithPassword(email, password);
     }
 
-    // Pega as transações dos últimos 2 meses para dar contexto
-    const dateLimit = new Date();
-    dateLimit.setMonth(dateLimit.getMonth() - 2);
-    const start = `${dateLimit.getFullYear()}-${(dateLimit.getMonth()+1).toString().padStart(2, '0')}-01 00:00:00`;
-
-    const records = await pba.collection('transactions').getFullList({
-      filter: `date >= '${start}' && context = '${context}'`,
-      sort: '-date',
+    // Busca o bloco de notas (memória da NeilAi) para este usuário e contexto
+    const notesResult = await pba.collection('neilai_notes').getList(1, 10, {
+      filter: `context = '${context}' && user_name = '${userName}'`,
+      sort: '-created'
     });
+    const activeNotes = notesResult.items.map(n => `- ${n.note}`).join('\n');
 
-    // Formata as transações cruas para a IA ter visão total de todos os dias e recebimentos
-    // Formato reduzido para economizar banda/tokens
-    const transacoesFormatadas = records.map(r => {
-      const dataFormatada = r.date.split(' ')[0].substring(5); // MM-DD
-      const tipo = r.type === 'receita' ? 'REC' : 'DESP';
-      return `[${dataFormatada}] ${tipo} R$${r.value} Categoria:${r.category || '-'} Desc:${(r.description || r.entity_name || '-').substring(0,20)}`;
-    }).join('\n');
+    // Não buscamos todas as transações por padrão mais para evitar payload gigante e lentidão.
+    // Agora a IA buscará dinamicamente usando a ferramenta 'search_transactions' se precisar.
 
     // Como o limite do Google Pago é de 2 MILHÕES de tokens por minuto, podemos relaxar o limite de histórico
     const historicoRecente = messages.slice(-10);
@@ -85,26 +78,40 @@ export async function POST(req: Request) {
       return { role: m.role, content: m.content };
     });
 
-    // Aqui usamos o Google Gemini 3.7 Flash na conta paga (Tier 1)
+    // Usamos o Google Gemini 3.7 Flash
     const result = await generateText({
       model: google('gemini-3.7-flash'),
       system: `Você é a NeilAi, uma assistente financeira avançada e extremamente educada da plataforma JanFlow (Jan Agência).
 Você foi projetada para ajudar o usuário com análises financeiras, gestão de gastos e conselhos inteligentes.
 
 Regras de Ouro:
-1. Responda em português do Brasil de forma clara e profissional. Use formatação em Markdown (negritos, listas). Você é inteligente e entende erros de digitação.
-2. O contexto financeiro atual do usuário é: "${context}".
-3. Abaixo estão TODAS as transações reais dos últimos meses do usuário. Use ESTES dados para responder de forma precisa.
-4. O usuário pode enviar FOTOS ou PDFs de faturas/recibos em anexo. Quando isso acontecer, LEIA os valores, compare com o banco de dados abaixo e LISTE os itens que parecem novos. PERGUNTE ao usuário quais ele deseja lançar (ex: "[1] Uber - R$20", "[2] Restaurante - R$50"). NÃO USE a ferramenta create_transaction antes de perguntar.
-5. APENAS DEPOIS que o usuário confirmar ("lança o 1 e o 2" ou "pode lançar tudo"), você usará a ferramenta 'create_transaction' para registrar os itens escolhidos.
-6. Se o usuário falar de um lançamento avulso solto ("gastei 50 com comida hoje"), você também pode pedir confirmação, ou se ele for imperativo ("lança 50 de comida"), lance direto.
-7. Se o usuário perguntar de um mês que não está na lista abaixo, diga gentilmente que no momento você só tem os dados dos últimos meses carregados.
+1. Responda em português do Brasil de forma clara e profissional, mas de forma muito humanizada.
+2. O nome do usuário com quem você está falando é: "${userName}". Chame-o pelo nome.
+3. O contexto financeiro atual que você está analisando é: "${context}". Mantenha os conselhos restritos a isso.
+4. Se o usuário perguntar sobre gastos ou receitas, USE a ferramenta 'search_transactions' para buscar os dados ANTES de responder.
+5. Se você tiver uma boa ideia, conselho ou plano financeiro para o usuário, você PODE usar a ferramenta 'save_note' para guardar essa memória para o futuro.
+6. O usuário pode enviar FOTOS ou PDFs de faturas. LEIA os valores e LISTE os itens. PERGUNTE quais ele deseja lançar.
+7. APENAS DEPOIS que o usuário confirmar, use a ferramenta 'create_transaction'.
 8. Nunca responda com código ou JSON na mensagem final.
+9. Hoje é dia ${new Date().toISOString().split('T')[0]}.
 
-DADOS FINANCEIROS REAIS (${context}):
-${transacoesFormatadas || 'Nenhuma transação encontrada.'}`,
+ANOTAÇÕES E MEMÓRIAS ANTERIORES QUE VOCÊ SALVOU PARA ${userName} (${context}):
+${activeNotes || 'Nenhuma anotação salva ainda.'}`,
       messages: geminiMessages,
       tools: {
+        save_note: tool({
+          description: 'Salva uma anotação, ideia ou conselho no Bloco de Notas para você se lembrar no futuro.',
+          parameters: z.object({
+            anotacao: z.string().describe('O texto da anotação ou conselho que você quer salvar para este usuário.')
+          })
+        } as any),
+        search_transactions: tool({
+          description: 'Busca transações financeiras do banco de dados em um período específico.',
+          parameters: z.object({
+            startDate: z.string().describe('Data inicial YYYY-MM-DD'),
+            endDate: z.string().describe('Data final YYYY-MM-DD')
+          })
+        } as any),
         create_transaction: tool({
           description: 'Lança uma nova despesa ou receita no sistema JanFlow.',
           parameters: z.object({
@@ -112,7 +119,7 @@ ${transacoesFormatadas || 'Nenhuma transação encontrada.'}`,
             valor: z.number().describe('O valor em reais (numérico e positivo).'),
             categoria: z.string().describe('Categoria. Ex: Comidinhas, Serviço Avulso, Assinatura, Transporte, etc.'),
             descricao: z.string().describe('Descrição breve do lançamento.'),
-            data: z.string().optional().describe('Data no formato YYYY-MM-DD. Se o usuário não falar a data, deixe vazio que o sistema usará hoje.')
+            data: z.string().optional().describe('Data no formato YYYY-MM-DD.')
           })
         } as any)
       }
@@ -120,44 +127,66 @@ ${transacoesFormatadas || 'Nenhuma transação encontrada.'}`,
 
     let finalResponseText = result.text;
     
-    // Execute tool manually since execute is not supported in this version of the AI SDK
+    // Manual Tool Execution
     if (result.toolCalls && result.toolCalls.length > 0) {
-      const toolCall = result.toolCalls.find(tc => tc.toolName === 'create_transaction');
-      if (toolCall) {
-        const { tipo, valor, categoria, descricao, data } = (toolCall as any).args;
-        try {
-          const pbUrl = process.env.NEXT_PUBLIC_POCKETBASE_URL || 'https://pb.janagencia.com.br';
-          const adminPb = new PocketBase(pbUrl);
-          adminPb.autoCancellation(false);
-          const email = process.env.POCKETBASE_ADMIN_EMAIL || 'ejanerik@gmail.com';
-          const password = process.env.POCKETBASE_ADMIN_PASSWORD || 'JanFlow@2026!';
-          
-          try {
-            await adminPb.collection('_superusers').authWithPassword(email, password);
-          } catch(e) {
-            await adminPb.admins.authWithPassword(email, password);
-          }
-          
-          let dateStr = data;
-          if (!dateStr || dateStr.trim() === '') {
-            dateStr = new Date().toISOString().split('T')[0];
-          }
+      const createCall = result.toolCalls.find(tc => tc.toolName === 'create_transaction');
+      const searchCall = result.toolCalls.find(tc => tc.toolName === 'search_transactions');
+      const saveNoteCall = result.toolCalls.find(tc => tc.toolName === 'save_note');
 
-          const record = await adminPb.collection('transactions').create({
+      const adminPb = new PocketBase(process.env.NEXT_PUBLIC_POCKETBASE_URL || 'https://pb.janagencia.com.br');
+      adminPb.autoCancellation(false);
+      try { await adminPb.collection('_superusers').authWithPassword(email, password); } 
+      catch(e) { await adminPb.admins.authWithPassword(email, password); }
+
+      if (saveNoteCall) {
+        const { anotacao } = (saveNoteCall as any).args || (saveNoteCall as any).input || {};
+        try {
+          await adminPb.collection('neilai_notes').create({
+            note: anotacao,
+            context: context,
+            user_name: userName
+          });
+          finalResponseText = `Prontinho, ${userName}! Já anotei no meu caderno para não esquecer. Mais alguma coisa?`;
+        } catch(e) {
+          finalResponseText = "Tentei salvar a anotação, mas ocorreu um erro no meu caderno!";
+        }
+      } else if (createCall) {
+        const { tipo, valor, categoria, descricao, data } = (createCall as any).args || (createCall as any).input || {};
+        try {
+          let dateStr = data;
+          if (!dateStr || dateStr.trim() === '') dateStr = new Date().toISOString().split('T')[0];
+
+          await adminPb.collection('transactions').create({
             type: tipo === 'receita' ? 'receita' : 'despesa',
             value: valor,
             category: categoria,
             description: descricao,
             date: dateStr + ' 12:00:00.000Z',
-            entity_name: '',
             context: context,
             is_recurring: false,
             status: 'concluído'
           });
-          
-          finalResponseText = "Prontinho! Acabei de registrar esse lançamento no seu fluxo de caixa. Mais alguma coisa?";
+          finalResponseText = `Prontinho, ${userName}! Acabei de registrar esse lançamento no seu fluxo de caixa.`;
         } catch (err: any) {
-          finalResponseText = "Ops, tentei salvar no sistema mas deu um erro. Pode verificar os dados e tentar novamente?";
+          finalResponseText = "Ops, tentei salvar no sistema mas deu um erro.";
+        }
+      } else if (searchCall) {
+        const { startDate, endDate } = (searchCall as any).args || (searchCall as any).input || {};
+        try {
+          const recordsResult = await adminPb.collection('transactions').getList(1, 150, {
+            filter: `date >= '${startDate} 00:00:00' && date <= '${endDate} 23:59:59' && context = '${context}'`,
+            sort: '-date',
+          });
+          const formated = recordsResult.items.map(r => `[${r.date.split(' ')[0].substring(5)}] ${r.type==='receita'?'REC':'DESP'} R$${r.value} Cat:${r.category||'-'} Desc:${r.description||'-'}`).join('\n');
+          
+          const followUp = await generateText({
+            model: google('gemini-3.7-flash'),
+            system: `Você é a NeilAi. Responda ao usuário ${userName} baseado nestes dados encontrados (${startDate} a ${endDate}):\n${formated || 'Nenhum dado.'}\nLembre-se de ser simpática.`,
+            messages: geminiMessages
+          });
+          finalResponseText = followUp.text;
+        } catch (err: any) {
+          finalResponseText = "Ops, tive um erro ao buscar no banco de dados.";
         }
       }
     }
