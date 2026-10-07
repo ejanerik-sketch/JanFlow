@@ -87,12 +87,12 @@ Regras de Ouro:
 1. Responda em português do Brasil de forma clara e profissional, mas de forma muito humanizada.
 2. O nome do usuário com quem você está falando é: "${userName}". Chame-o pelo nome.
 3. O contexto financeiro atual que você está analisando é: "${context}". Mantenha os conselhos restritos a isso.
-4. Se o usuário perguntar sobre gastos ou receitas, USE a ferramenta 'search_transactions' para buscar os dados ANTES de responder.
-5. Se você tiver uma boa ideia, conselho ou plano financeiro para o usuário, você PODE usar a ferramenta 'save_note' para guardar essa memória para o futuro.
-6. O usuário pode enviar FOTOS ou PDFs de faturas. LEIA os valores e LISTE os itens. PERGUNTE quais ele deseja lançar.
-7. APENAS DEPOIS que o usuário confirmar, use a ferramenta 'create_transaction'.
-8. Nunca responda com código ou JSON na mensagem final.
-9. Hoje é dia ${new Date().toISOString().split('T')[0]}.
+4. VOCÊ TEM ACESSO TOTAL AOS DADOS DO USUÁRIO. Nunca diga que não tem acesso a sistemas ou bancos de dados externos. Você tem ferramentas nativas para isso.
+5. Se o usuário pedir um PLANO FINANCEIRO, análise de contenção de gastos ou relatórios de qualquer período (trimestre, semestre, ano), USE OBRIGATORIAMENTE a ferramenta 'search_transactions' para puxar os dados e basear seu plano em DADOS REAIS da conta. 
+6. Hoje é dia ${new Date().toISOString().split('T')[0]}. Calcule os períodos (startDate e endDate) para usar as ferramentas baseada nesta data. Se o usuário não especificar o período do plano, assuma os últimos 30 ou 60 dias por padrão.
+7. Se você tiver uma boa ideia, conselho ou plano financeiro duradouro, você PODE usar a ferramenta 'save_note' para guardar essa memória para o futuro.
+8. O usuário pode enviar FOTOS ou PDFs de faturas. LEIA os valores e LISTE os itens. PERGUNTE quais ele deseja lançar. APENAS DEPOIS que o usuário confirmar, use a ferramenta 'create_transaction'.
+9. Nunca responda com código ou JSON na mensagem final.
 
 ANOTAÇÕES E MEMÓRIAS ANTERIORES QUE VOCÊ SALVOU PARA ${userName} (${context}):
 ${activeNotes || 'Nenhuma anotação salva ainda.'}`,
@@ -105,10 +105,10 @@ ${activeNotes || 'Nenhuma anotação salva ainda.'}`,
           })
         } as any),
         search_transactions: tool({
-          description: 'Busca transações financeiras do banco de dados em um período específico.',
+          description: 'Busca transações financeiras na base de dados. Use para QUALQUER ANÁLISE, plano financeiro ou dúvidas sobre o histórico (receitas/gastos).',
           parameters: z.object({
-            startDate: z.string().describe('Data inicial YYYY-MM-DD'),
-            endDate: z.string().describe('Data final YYYY-MM-DD')
+            startDate: z.string().describe('Data inicial YYYY-MM-DD. Ex: Para um trimestre, calcule 3 meses antes da data atual.'),
+            endDate: z.string().describe('Data final YYYY-MM-DD. Geralmente a data de hoje ou o fim do período solicitado.')
           })
         } as any),
         create_transaction: tool({
@@ -172,7 +172,7 @@ ${activeNotes || 'Nenhuma anotação salva ainda.'}`,
       } else if (searchCall) {
         const { startDate, endDate } = (searchCall as any).args || (searchCall as any).input || {};
         try {
-          const recordsResult = await adminPb.collection('transactions').getList(1, 150, {
+          const recordsResult = await adminPb.collection('transactions').getList(1, 300, {
             filter: `date >= '${startDate} 00:00:00' && date <= '${endDate} 23:59:59' && context = '${context}'`,
             sort: '-date',
           });
