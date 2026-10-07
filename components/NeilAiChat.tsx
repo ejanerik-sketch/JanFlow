@@ -8,7 +8,7 @@ import 'regenerator-runtime/runtime';
 import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
 
 export default function NeilAiChat() {
-  const { context, user, isAuthReady } = useAppContext();
+  const { context, user, userData, isAuthReady } = useAppContext();
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [localInput, setLocalInput] = useState('');
@@ -94,7 +94,7 @@ export default function NeilAiChat() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [...messages, userMessage],
-          data: { context, userName: user?.name || 'Usuário' }
+          data: { context, userName: userData?.name || user?.name || 'Usuário' }
         })
       });
 
