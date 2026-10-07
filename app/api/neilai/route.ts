@@ -25,8 +25,8 @@ export async function POST(req: Request) {
     const pbUrl = process.env.NEXT_PUBLIC_POCKETBASE_URL || 'https://pb.janagencia.com.br';
     const pba = new PocketBase(pbUrl);
     pba.autoCancellation(false);
-    const email = process.env.POCKETBASE_ADMIN_EMAIL || 'ejanerik@gmail.com';
-    const password = process.env.POCKETBASE_ADMIN_PASSWORD || 'JanFlow@2026!';
+    const email = process.env.POCKETBASE_ADMIN_EMAIL as string;
+    const password = process.env.POCKETBASE_ADMIN_PASSWORD as string;
     
     try {
       await pba.collection('_superusers').authWithPassword(email, password);

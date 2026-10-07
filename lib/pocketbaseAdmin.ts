@@ -5,8 +5,8 @@ export async function getPocketBaseAdmin() {
   const pb = new PocketBase(pbUrl);
   pb.autoCancellation(false);
   
-  const email = process.env.POCKETBASE_ADMIN_EMAIL || 'ejanerik@gmail.com';
-  const password = process.env.POCKETBASE_ADMIN_PASSWORD || 'JanFlow@2026!';
+  const email = process.env.POCKETBASE_ADMIN_EMAIL as string;
+  const password = process.env.POCKETBASE_ADMIN_PASSWORD as string;
 
   try {
     // Tenta no formato v0.23 (_superusers)
